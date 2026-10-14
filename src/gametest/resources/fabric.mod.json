@@ -1,0 +1,13 @@
+{
+	"schemaVersion": 1,
+	"id": "damagealert-gametest",
+	"version": "1.0.0",
+	"name": "Damage Alert Ingame-Test",
+	"environment": "client",
+	"entrypoints": {
+		"fabric-client-gametest": ["de.puffa.damagealert.gametest.DamageAlertClientGameTest"]
+	},
+	"depends": {
+		"damagealert": "*"
+	}
+}

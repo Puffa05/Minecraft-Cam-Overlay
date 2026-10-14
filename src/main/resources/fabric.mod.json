@@ -1,0 +1,19 @@
+{
+	"schemaVersion": 1,
+	"id": "damagealert",
+	"version": "${version}",
+	"name": "Damage Alert",
+	"description": "Meldet Ingame-Ereignisse an Streamer.bot und stellt Spielzustaende fuer ein OBS-Overlay bereit. Nur lesend.",
+	"authors": ["Puffa05"],
+	"license": "MIT",
+	"environment": "client",
+	"entrypoints": {
+		"client": ["de.puffa.damagealert.client.DamageAlertClient"]
+	},
+	"depends": {
+		"fabricloader": ">=0.19.5",
+		"minecraft": "~1.21.11",
+		"java": ">=21",
+		"fabric-api": "*"
+	}
+}
