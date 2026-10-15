@@ -1,0 +1,30 @@
+[05:58:39] [Test worker/WARN]: [DamageAlert] Ungueltiger Wert enabled.freeze=vielleicht (erlaubt true/false), nutze true
+[05:58:39] [Test worker/WARN]: [DamageAlert] Ungueltiger Wert streamerbot.port=abc (erlaubt 1..65535), nutze 7474
+[05:58:39] [Test worker/WARN]: [DamageAlert] Ungueltiger Wert state.port=70000 (erlaubt 1..65535), nutze 7475
+[05:58:39] [Test worker/WARN]: [DamageAlert] Ungueltiger Wert damage.cooldownMs=-5 (erlaubt 0..600000), nutze 1000
+[05:58:39] [Test worker/INFO]: [DamageAlert] Config angelegt: /tmp/junit-250245804635934780/sub/damagealert.properties
+[05:58:40] [Test worker/INFO]: [DamageAlert] Config angelegt: /tmp/junit-4836776730765379460/damagealert.properties
+[05:58:40] [Test worker/INFO]: [DamageAlert] Zustands-Server laeuft auf http://127.0.0.1:36951/state , Oberflaeche: http://127.0.0.1:36951/
+[05:58:40] [Test worker/INFO]: [DamageAlert] Config angelegt: /tmp/junit-16542597088683019115/damagealert.properties
+[05:58:40] [Test worker/INFO]: [DamageAlert] Zustands-Server laeuft auf http://127.0.0.1:36151/state , Oberflaeche: http://127.0.0.1:36151/
+[05:58:40] [ForkJoinPool.commonPool-worker-1/INFO]: [DamageAlert] Streamer.bot unter http://127.0.0.1:46219/DoAction nicht erreichbar (wird ignoriert): java.util.concurrent.CompletionException: java.net.ConnectException
+[05:58:40] [Test worker/INFO]: [DamageAlert] Config angelegt: /tmp/junit-4970285224534995247/damagealert.properties
+[05:58:40] [Test worker/INFO]: [DamageAlert] Zustands-Server laeuft auf http://127.0.0.1:36955/state , Oberflaeche: http://127.0.0.1:36955/
+[05:58:40] [Test worker/INFO]: [DamageAlert] Config angelegt: /tmp/junit-2193588282943707960/damagealert.properties
+[05:58:40] [Test worker/INFO]: [DamageAlert] Zustands-Server laeuft auf http://127.0.0.1:40481/state , Oberflaeche: http://127.0.0.1:40481/
+[05:58:43] [ForkJoinPool.commonPool-worker-1/INFO]: [DamageAlert] Streamer.bot unter http://127.0.0.1:41497/DoAction nicht erreichbar (wird ignoriert): java.util.concurrent.CompletionException: java.net.http.HttpTimeoutException: request timed out
+[05:58:43] [Test worker/INFO]: [DamageAlert] Config angelegt: /tmp/junit-3959352054713334959/damagealert.properties
+[05:58:43] [Test worker/INFO]: [DamageAlert] Zustands-Server laeuft auf http://127.0.0.1:37505/state , Oberflaeche: http://127.0.0.1:37505/
+[05:58:43] [DamageAlert-StateServer/INFO]: [DamageAlert] Test-Event Minecraft Schaden an Streamer.bot
+[05:58:43] [DamageAlert-StateServer/INFO]: [DamageAlert] Test-Event Portal Start an Streamer.bot
+[05:58:43] [DamageAlert-StateServer/INFO]: [DamageAlert] Test-Event Portal Ende an Streamer.bot
+[05:58:43] [Test worker/INFO]: [DamageAlert] Config angelegt: /tmp/junit-2303488423407982577/damagealert.properties
+[05:58:43] [Test worker/INFO]: [DamageAlert] Zustands-Server laeuft auf http://127.0.0.1:36071/state , Oberflaeche: http://127.0.0.1:36071/
+[05:58:43] [DamageAlert-StateServer/INFO]: [DamageAlert] Effekt damage aus
+[05:58:44] [Test worker/INFO]: [DamageAlert] Config angelegt: /tmp/junit-13558613683350318332/damagealert.properties
+[05:58:44] [Test worker/INFO]: [DamageAlert] Zustands-Server laeuft auf http://127.0.0.1:37597/state , Oberflaeche: http://127.0.0.1:37597/
+[05:58:44] [DamageAlert-StateServer/INFO]: [DamageAlert] Test-Zustand underwater fuer 5000 ms
+[05:58:44] [Test worker/INFO]: [DamageAlert] Config angelegt: /tmp/junit-12408479132276517044/damagealert.properties
+[05:58:44] [Test worker/INFO]: [DamageAlert] Zustands-Server laeuft auf http://127.0.0.1:42167/state , Oberflaeche: http://127.0.0.1:42167/
+[05:58:44] [Test worker/INFO]: [DamageAlert] Config angelegt: /tmp/junit-11413081557287039412/damagealert.properties
+[05:58:44] [Test worker/INFO]: [DamageAlert] Zustands-Server laeuft auf http://127.0.0.1:37705/state , Oberflaeche: http://127.0.0.1:37705/

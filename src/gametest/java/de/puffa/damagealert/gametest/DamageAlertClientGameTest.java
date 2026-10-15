@@ -1,6 +1,11 @@
 package de.puffa.damagealert.gametest;
 
+import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -13,7 +18,10 @@ import java.util.regex.Pattern;
 
 import com.sun.net.httpserver.HttpServer;
 
+import de.puffa.damagealert.ConfigStore;
+import de.puffa.damagealert.DamageAlertConfig;
 import de.puffa.damagealert.StateServer;
+import de.puffa.damagealert.StreamerBotClient;
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestServerContext;
@@ -40,9 +48,11 @@ public class DamageAlertClientGameTest implements FabricClientGameTest {
 	private final List<Event> events = new CopyOnWriteArrayList<>();
 	private final HttpClient http = HttpClient.newBuilder().proxy(HttpClient.Builder.NO_PROXY).build();
 
+	private HttpServer mock;
+
 	@Override
 	public void runTest(ClientGameTestContext ctx) {
-		HttpServer mock = startMockStreamerBot();
+		mock = startMockStreamerBot();
 		try {
 			run(ctx);
 		} finally {
@@ -58,8 +68,10 @@ public class DamageAlertClientGameTest implements FabricClientGameTest {
 				&& state.contains("\"freeze\":0") && state.contains("\"biome\":null"), "Zustand ohne Welt");
 
 		// Belegter Port darf nur eine Warnung erzeugen (der Mod-Server belegt 7475 bereits)
-		StateServer second = new StateServer();
+		StateServer second = new StateServer(new ConfigStore(Path.of("build-gametest-unused.properties"), DamageAlertConfig.defaults()),
+				new StreamerBotClient(7474));
 		check(!second.start(7475), "Zweiter Server auf belegtem Port muss false liefern, ohne Exception");
+		check(getPage().contains("<title>Damage Alert</title>"), "Oberflaeche wird unter / ausgeliefert");
 
 		try (TestSingleplayerContext sp = ctx.worldBuilder().create()) {
 			sp.getClientWorld().waitForChunksRender();
@@ -84,8 +96,10 @@ public class DamageAlertClientGameTest implements FabricClientGameTest {
 			ctx.takeScreenshot("01-grundzustand");
 
 			testDamage(ctx, server);
+			testDamageToggle(ctx, server);
 			testStates(ctx, server);
 			testRespawnGrace(ctx, server);
+			testHangingStreamerBot(ctx, server);
 			testPortal(ctx, server);
 
 			// Spieler steht wieder in einem Portal -> beim Verlassen der Welt muss "Portal Ende" kommen
@@ -136,6 +150,7 @@ public class DamageAlertClientGameTest implements FabricClientGameTest {
 	}
 
 	private void testStates(ClientGameTestContext ctx, TestServerContext server) {
+		int eventsBefore = events.size();
 		server.runCommand("effect give @p minecraft:fire_resistance infinite 0 true");
 
 		// Unterwasser
@@ -145,6 +160,10 @@ public class DamageAlertClientGameTest implements FabricClientGameTest {
 		log("Unterwasser: " + state);
 		check(state.contains("\"underwater\":true") && state.contains("\"inLava\":false"), "underwater");
 		ctx.takeScreenshot("02-unterwasser");
+		api("/api/toggle?effect=underwater&enabled=false");
+		check(getState().contains("\"underwater\":false"), "Schalter aus: underwater wird als false gemeldet");
+		api("/api/toggle?effect=underwater&enabled=true");
+		check(getState().contains("\"underwater\":true"), "Schalter wieder an: underwater true");
 		server.runCommand("fill 4 -60 4 12 -55 12 minecraft:air");
 
 		// Frieren im Pulverschnee (vor Lava: brennende Spieler schmelzen Pulverschnee)
@@ -187,7 +206,7 @@ public class DamageAlertClientGameTest implements FabricClientGameTest {
 		server.runCommand("weather clear");
 
 		settle();
-		check(count("Minecraft Schaden") == 2 && count("Portal Start") == 0, "Keine Extra-Events bei Zustaenden: " + events);
+		check(events.size() == eventsBefore, "Keine Extra-Events bei Zustaenden: " + events);
 	}
 
 	private void testRespawnGrace(ClientGameTestContext ctx, TestServerContext server) {
@@ -277,6 +296,111 @@ public class DamageAlertClientGameTest implements FabricClientGameTest {
 		ctx.waitTicks(3);
 		settle();
 		check(names().equals(List.of("Portal Start", "Portal Ende", "Portal Start")), "Erneutes Betreten: " + events);
+
+		// Im Portal abschalten -> sofort "Portal Ende", damit der OBS-Effekt nicht haengen bleibt
+		events.clear();
+		api("/api/toggle?effect=portal&enabled=false");
+		ctx.waitTicks(2);
+		settle();
+		check(names().equals(List.of("Portal Ende")), "Abschalten im Portal sendet Portal Ende: " + events);
+		// Abgeschaltet raus und wieder rein -> nichts
+		server.runCommand("execute as @p at @s run tp @s ~" + dx + " ~ ~" + dz);
+		ctx.waitTicks(3);
+		server.runCommand("execute as @p at @s run tp @s ~" + (-dx) + " ~ ~" + (-dz));
+		ctx.waitTicks(3);
+		settle();
+		check(names().equals(List.of("Portal Ende")), "Abgeschaltet: kein Event beim Betreten/Verlassen: " + events);
+		// Wieder an, raus und rein -> Start
+		api("/api/toggle?effect=portal&enabled=true");
+		server.runCommand("execute as @p at @s run tp @s ~" + dx + " ~ ~" + dz);
+		ctx.waitTicks(3);
+		settle();
+		check(names().equals(List.of("Portal Ende")), "Wieder an, Verlassen ohne vorheriges Start sendet kein Ende: " + events);
+		server.runCommand("execute as @p at @s run tp @s ~" + (-dx) + " ~ ~" + (-dz));
+		ctx.waitTicks(3);
+		settle();
+		check(names().equals(List.of("Portal Ende", "Portal Start")), "Wieder an: Portal Start: " + events);
+	}
+
+	private void testDamageToggle(ClientGameTestContext ctx, TestServerContext server) {
+		events.clear();
+		api("/api/toggle?effect=damage&enabled=false");
+		ctx.waitTicks(25);
+		sleep(1100);
+		server.runCommand("damage @p 1 minecraft:generic");
+		ctx.waitTicks(3);
+		settle();
+		check(events.isEmpty(), "Schaden abgeschaltet: kein Event, war: " + events);
+		api("/api/toggle?effect=damage&enabled=true");
+		ctx.waitTicks(25);
+		server.runCommand("damage @p 1 minecraft:generic");
+		ctx.waitTicks(3);
+		settle();
+		check(count("Minecraft Schaden") == 1 && last().body().contains("\"health\":9"), "Schaden wieder an: " + events);
+		// Die Config-Datei im run-Ordner muss den Schalter enthalten
+		try {
+			String cfg = java.nio.file.Files.readString(net.fabricmc.loader.api.FabricLoader.getInstance().getConfigDir().resolve("damagealert.properties"));
+			check(cfg.contains("enabled.damage=true") && cfg.contains("enabled.portal=true"), "Config enthaelt Schalter");
+		} catch (IOException e) {
+			throw new RuntimeException(e);
+		}
+	}
+
+	/** Streamer.bot nimmt Verbindungen an, antwortet aber nie: das Spiel darf nicht langsamer werden. */
+	private void testHangingStreamerBot(ClientGameTestContext ctx, TestServerContext server) {
+		long base = timeTicks(ctx, 40);
+		mock.stop(0);
+		List<Socket> keep = new ArrayList<>();
+		try (ServerSocket hanging = new ServerSocket(7474, 50, java.net.InetAddress.getByName("127.0.0.1"))) {
+			Thread acceptor = new Thread(() -> {
+				try {
+					while (true) {
+						keep.add(hanging.accept());
+					}
+				} catch (IOException ignored) {
+					// geschlossen
+				}
+			}, "haengender-streamerbot");
+			acceptor.setDaemon(true);
+			acceptor.start();
+
+			long withHang = 0;
+			for (int i = 0; i < 3; i++) {
+				sleep(1100);
+				server.runCommand("damage @p 1 minecraft:generic");
+				withHang += timeTicks(ctx, 14);
+			}
+			log("40 Ticks normal: " + base + " ms, 42 Ticks mit haengendem Streamer.bot: " + withHang + " ms");
+			check(withHang < base * 2 + 1500, "Spiel laeuft trotz haengendem Streamer.bot normal weiter");
+			check(keep.size() >= 1, "Mod hat den haengenden Streamer.bot tatsaechlich angefragt (" + keep.size() + " Verbindungen)");
+		} catch (IOException e) {
+			throw new RuntimeException(e);
+		} finally {
+			for (Socket sock : keep) {
+				try {
+					sock.close();
+				} catch (IOException ignored) {
+					// egal
+				}
+			}
+		}
+		sleep(3500); // laufende Requests in den Timeout laufen lassen
+		mock = startMockStreamerBot();
+		server.runCommand("effect give @p minecraft:instant_health 1 5 true");
+		ctx.waitTicks(30);
+		check(ctx.computeOnClient(c -> c.player.getHealth()) > 15f, "Wieder geheilt fuer den Portal-Test");
+		sleep(1100);
+		events.clear();
+		server.runCommand("damage @p 2 minecraft:generic");
+		ctx.waitTicks(3);
+		settle();
+		check(count("Minecraft Schaden") == 1, "Danach kommen Events wieder normal an: " + events);
+	}
+
+	private static long timeTicks(ClientGameTestContext ctx, int ticks) {
+		long t = System.nanoTime();
+		ctx.waitTicks(ticks);
+		return (System.nanoTime() - t) / 1_000_000;
 	}
 
 	// ----------------------------------------------------------------- Hilfen
@@ -342,6 +466,28 @@ public class DamageAlertClientGameTest implements FabricClientGameTest {
 			return r.body();
 		} catch (Exception e) {
 			throw new RuntimeException("GET /state fehlgeschlagen", e);
+		}
+	}
+
+	/** Ruft die API so auf wie die Oberflaeche (POST mit eigenem Header). */
+	private String api(String pathAndQuery) {
+		try {
+			HttpResponse<String> r = http.send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:7475" + pathAndQuery))
+					.header("X-DamageAlert", "1").POST(HttpRequest.BodyPublishers.noBody()).build(),
+					HttpResponse.BodyHandlers.ofString());
+			check(r.statusCode() == 200, "API " + pathAndQuery + " -> " + r.statusCode() + " " + r.body());
+			return r.body();
+		} catch (IOException | InterruptedException e) {
+			throw new RuntimeException(e);
+		}
+	}
+
+	private String getPage() {
+		try {
+			return http.send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:7475/")).build(),
+					HttpResponse.BodyHandlers.ofString()).body();
+		} catch (IOException | InterruptedException e) {
+			throw new RuntimeException(e);
 		}
 	}
 

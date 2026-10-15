@@ -19,9 +19,18 @@ keine Eingaben, keine Mixins, keine Gameplay-Änderung.
 - In Streamer.bot: *Servers/Clients → HTTP Server* aktivieren (Port 7474) und Actions
   mit exakt diesen Namen anlegen. Die Args stehen in der Action als `%damage%` / `%health%` bereit.
 
+## Oberfläche: Effekte an/aus und testen
+Solange Minecraft mit dem Mod läuft: **http://127.0.0.1:7475/** im Browser öffnen.
+- Jeder Effekt (Schaden, Portal, Unterwasser, Lava, Frieren, Regen, Gewitter, Biom, Dimension, Y)
+  lässt sich einzeln abschalten. Das wirkt sofort und wird in der Config gespeichert.
+- **Test-Buttons:** Events werden einmal an Streamer.bot geschickt (mit Rückmeldung, ob es geklappt hat).
+  Zustände werden 5 Sekunden lang als „an“ gemeldet, auch im Hauptmenü, zum Prüfen des Overlays.
+- Schalten geht nur von dieser Seite aus; fremde Webseiten können weder schalten noch Tests auslösen.
+
 ## Config
 `config/damagealert.properties` wird beim ersten Start angelegt (Ports, Action-Namen,
-Cooldown). Nach Änderungen Minecraft neu starten.
+Cooldown, `enabled.*`-Schalter). Ports, Namen und Cooldown gelten nach einem Neustart,
+die Schalter ändert die Oberfläche live.
 
 ## Overlay-Beispiel (OBS-Browserquelle)
 ```html
@@ -43,7 +52,8 @@ Voraussetzung: JDK 21.
 java tools/MockStreamerBot.java          # Fake-Streamer.bot auf Port 7474, zeigt Requests an
 ./gradlew runClient                      # Minecraft mit dem Mod starten
 curl http://127.0.0.1:7475/state         # Zustand abfragen
-./gradlew runClientGameTest              # automatischer Ingame-Test (Schaden, Portal, Zustände)
+./gradlew test                           # Unit-Tests (Config, JSON, Oberflächen-API, Streamer.bot aus/hängt)
+./gradlew runClientGameTest              # automatischer Ingame-Test (Schaden, Portal, Zustände, Schalter)
 ```
 
 ## Versionen

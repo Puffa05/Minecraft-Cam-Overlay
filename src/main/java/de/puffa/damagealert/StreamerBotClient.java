@@ -6,8 +6,9 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.LinkedHashMap;
+import java.util.TreeMap;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -16,6 +17,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * und Fehler (z. B. Streamer.bot laeuft nicht) werden ignoriert.
  */
 public final class StreamerBotClient {
+	/** Ergebnis eines Sendeversuchs (fuer die Test-Buttons der Oberflaeche). */
+	public record SendResult(boolean ok, int status, String error) {
+		public String toJson() {
+			return "{\"ok\":" + ok + ",\"status\":" + status + ",\"error\":" + Json.string(error) + "}";
+		}
+	}
+
 	private final URI endpoint;
 	private final HttpClient http;
 	/** Damit "nicht erreichbar" nur einmal im Log steht und nicht bei jedem Event. */
@@ -60,40 +68,68 @@ public final class StreamerBotClient {
 		return sb.append("}}").toString();
 	}
 
-	public void doAction(String actionName) {
-		doAction(actionName, Map.of());
+	public URI endpoint() {
+		return endpoint;
 	}
 
-	public void doAction(String actionName, Map<String, ?> args) {
+	public CompletableFuture<SendResult> doAction(String actionName) {
+		return doAction(actionName, Map.of());
+	}
+
+	/**
+	 * Schickt eine Action. Kehrt sofort zurueck; das Ergebnis kommt spaeter ueber das Future.
+	 * Das Future wird nie mit einer Exception abgeschlossen, Fehler stehen im SendResult.
+	 */
+	public CompletableFuture<SendResult> doAction(String actionName, Map<String, ?> args) {
 		if (http == null) {
-			return;
+			return CompletableFuture.completedFuture(new SendResult(false, 0, "HTTP-Client nicht verfügbar"));
 		}
 		try {
-			String body = buildBody(actionName, new LinkedHashMap<>(args));
+			// Sortiert, damit der Body immer gleich aussieht (damage vor health)
+			String body = buildBody(actionName, new TreeMap<>(args));
 			HttpRequest request = HttpRequest.newBuilder(endpoint)
 					.timeout(Duration.ofSeconds(3))
 					.header("Content-Type", "application/json; charset=utf-8")
 					.POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
 					.build();
 
-			http.sendAsync(request, HttpResponse.BodyHandlers.discarding()).whenComplete((response, error) -> {
+			return http.sendAsync(request, HttpResponse.BodyHandlers.discarding()).handle((response, error) -> {
 				if (error != null) {
 					if (reachable.compareAndSet(true, false)) {
 						DamageAlert.LOGGER.info("[DamageAlert] Streamer.bot unter {} nicht erreichbar (wird ignoriert): {}",
 								endpoint, error.toString());
 					}
-				} else {
-					if (reachable.compareAndSet(false, true)) {
-						DamageAlert.LOGGER.info("[DamageAlert] Streamer.bot wieder erreichbar.");
-					}
-					if (response.statusCode() >= 300) {
-						DamageAlert.LOGGER.debug("[DamageAlert] Streamer.bot antwortete {} auf {}", response.statusCode(), actionName);
-					}
+					return new SendResult(false, 0, describe(error));
 				}
+				if (reachable.compareAndSet(false, true)) {
+					DamageAlert.LOGGER.info("[DamageAlert] Streamer.bot wieder erreichbar.");
+				}
+				int status = response.statusCode();
+				if (status >= 300) {
+					DamageAlert.LOGGER.debug("[DamageAlert] Streamer.bot antwortete {} auf {}", status, actionName);
+				}
+				return new SendResult(status < 300, status, status < 300 ? null : "Streamer.bot antwortete " + status);
 			});
 		} catch (RuntimeException e) {
 			// Darf das Spiel nie stoeren
 			DamageAlert.LOGGER.debug("[DamageAlert] Senden fehlgeschlagen: {}", e.toString());
+			return CompletableFuture.completedFuture(new SendResult(false, 0, e.toString()));
 		}
+	}
+
+	/** Uebersetzt Java-Fehler in eine verstaendliche Meldung fuer die Oberflaeche. */
+	static String describe(Throwable error) {
+		Throwable root = error;
+		for (Throwable t = error; t != null; t = t.getCause() == t ? null : t.getCause()) {
+			if (t instanceof java.net.http.HttpTimeoutException) {
+				return "Zeitüberschreitung: Streamer.bot antwortet nicht";
+			}
+			// Verbindung abgelehnt zeigt sich je nach System als ConnectException oder ClosedChannelException
+			if (t instanceof java.net.ConnectException || t instanceof java.nio.channels.ClosedChannelException) {
+				return "Streamer.bot nicht erreichbar (läuft er? HTTP-Server aktiviert?)";
+			}
+			root = t;
+		}
+		return root.getClass().getSimpleName() + (root.getMessage() != null ? ": " + root.getMessage() : "");
 	}
 }

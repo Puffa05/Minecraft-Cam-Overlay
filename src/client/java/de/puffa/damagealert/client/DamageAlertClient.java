@@ -1,5 +1,6 @@
 package de.puffa.damagealert.client;
 
+import de.puffa.damagealert.ConfigStore;
 import de.puffa.damagealert.DamageAlert;
 import de.puffa.damagealert.DamageAlertConfig;
 import de.puffa.damagealert.StateServer;
@@ -32,13 +33,14 @@ public class DamageAlertClient implements ClientModInitializer {
 
 	@Override
 	public void onInitializeClient() {
-		DamageAlertConfig config = DamageAlertConfig.load();
+		ConfigStore store = ConfigStore.load(DamageAlertConfig.defaultPath());
+		DamageAlertConfig config = store.get();
 		StreamerBotClient streamerBot = new StreamerBotClient(config.streamerBotPort());
 
-		damageTracker = new DamageTracker(streamerBot, config.actionDamage(), config.damageCooldownMs());
-		portalTracker = new PortalTracker(streamerBot, config.actionPortalStart(), config.actionPortalEnd());
+		damageTracker = new DamageTracker(streamerBot, store);
+		portalTracker = new PortalTracker(streamerBot, store);
 
-		stateServer = new StateServer();
+		stateServer = new StateServer(store, streamerBot);
 		stateServer.start(config.statePort()); // bei belegtem Port nur Warnung
 
 		ClientTickEvents.END_CLIENT_TICK.register(this::onEndTick);
