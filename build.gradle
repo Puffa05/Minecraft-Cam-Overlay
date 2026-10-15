@@ -82,3 +82,21 @@ loom {
 		}
 	}
 }
+
+// Fertige Mod und Overlays in den Ordner download/ legen (wird mit ins Repo committet,
+// damit man sie direkt auf GitHub herunterladen kann). Laeuft automatisch nach "build".
+def downloadSync = tasks.register("updateDownloads", Sync) {
+	description = "Kopiert die fertige Mod-.jar und die Overlay-HTMLs nach download/"
+	from(tasks.named("remapJar"))
+	from("overlay") {
+		include "*.html"
+		into "overlay"
+	}
+	into layout.projectDirectory.dir("download")
+	preserve {
+		include "LIESMICH.md"
+	}
+}
+tasks.named("build") {
+	finalizedBy downloadSync
+}

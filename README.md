@@ -12,6 +12,9 @@ deinen Stream weitergibt:
 Der Mod **liest nur**. Er schickt nichts an den Minecraft-Server, simuliert keine Eingaben und
 ändert nichts am Spiel. Alles läuft nur auf deinem eigenen PC.
 
+> **Direkt herunterladen:** Die fertige Mod und das Overlay liegen immer aktuell im Ordner
+> [`download/`](download/).
+
 ---
 
 ## Inhalt
@@ -35,7 +38,7 @@ Der Mod **liest nur**. Er schickt nichts an den Minecraft-Server, simuliert kein
 |---|---|
 | **Minecraft Java 1.21.11 mit Fabric** (z. B. ein Profil im NoRisk Client) | Hier läuft der Mod |
 | **Fabric API** für 1.21.11 (`0.141.6+1.21.11` oder neuer) | Wird vom Mod benötigt |
-| **`damagealert-1.0.0.jar`** | Der Mod selbst (siehe [Abschnitt 10](#10-für-entwickler-selbst-bauen-und-testen), wie man ihn baut) |
+| **`damagealert-1.0.0.jar`** | Der Mod selbst, aus dem Ordner [`download/`](download/) |
 | **Streamer.bot** | Nimmt die Ereignisse entgegen und steuert OBS |
 | **OBS Studio** | Für das Overlay mit den Dauerzuständen |
 
@@ -46,7 +49,8 @@ reicht OBS.
 
 ## 2. Mod installieren
 
-1. Lege **`damagealert-1.0.0.jar`** in den Mod-Ordner deines Fabric-Profils.
+1. Lade **`damagealert-1.0.0.jar`** aus [`download/`](download/) herunter (Datei anklicken →
+   „Download raw file“) und lege sie in den Mod-Ordner deines Fabric-Profils.
    - **Nicht** die Datei `damagealert-1.0.0-sources.jar` nehmen. Die enthält nur den Quellcode.
    - **NoRisk Client:** Öffne im Launcher dein 1.21.11-Profil und füge die .jar als eigene Mod hinzu
      (je nach Launcher-Version per Drag & Drop in die Mod-Liste oder über „Profil-Ordner öffnen“ →
@@ -101,7 +105,8 @@ läuft). Ein Overlay in OBS fragt diese Adresse regelmäßig ab.
 
 ### Mit dem mitgelieferten Beispiel-Overlay
 1. In OBS: **Quelle hinzufügen → Browser**.
-2. **Lokale Datei** anhaken und `overlay/beispiel-overlay.html` aus diesem Projekt auswählen.
+2. **Lokale Datei** anhaken und `beispiel-overlay.html` auswählen
+   (aus [`download/overlay/`](download/overlay/) herunterladen).
 3. Breite `1920`, Höhe `1080` (bzw. deine Canvas-Größe).
 4. Die Quelle **über** deine Spielaufnahme legen.
 
@@ -271,7 +276,9 @@ Unter Windows in der Eingabeaufforderung im Projektordner:
 ```bat
 gradlew.bat build
 ```
-Die fertige Mod liegt danach in `build\libs\damagealert-1.0.0.jar`.
+Die fertige Mod liegt danach in `build\libs\damagealert-1.0.0.jar`. Zusätzlich kopiert `build` sie
+zusammen mit den Overlays aus `overlay/` in den Ordner `download/`. Den Ordner bei Änderungen bitte
+mit committen, damit dort immer der aktuelle Stand liegt.
 
 Weitere Befehle (unter Linux/macOS `./gradlew` statt `gradlew.bat`):
 
@@ -288,7 +295,8 @@ src/main/      Teil ohne Minecraft-Abhängigkeit: Config, Streamer.bot-Versand, 
 src/client/    Liest die Spielwerte im Client-Tick, Ingame-Menü, Tastenbelegung
 src/test/      Unit-Tests (JUnit)
 src/gametest/  Automatischer Ingame-Test (landet nicht in der fertigen Mod)
-overlay/       Beispiel-Overlay für OBS
+overlay/       Overlays für OBS (Quelle, hier bearbeiten)
+download/      Fertige Mod + Overlays zum Herunterladen (wird von "build" automatisch befüllt)
 tools/         Fake-Streamer.bot zum Testen
 ```
 
