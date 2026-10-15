@@ -3,14 +3,20 @@ package de.puffa.damagealert.client;
 import de.puffa.damagealert.ConfigStore;
 import de.puffa.damagealert.DamageAlert;
 import de.puffa.damagealert.DamageAlertConfig;
+import de.puffa.damagealert.EffectController;
 import de.puffa.damagealert.StateServer;
 import de.puffa.damagealert.StateSnapshot;
 import de.puffa.damagealert.StreamerBotClient;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayNetworkHandler;
+import net.minecraft.client.option.KeyBinding;
+import net.minecraft.client.util.InputUtil;
+import net.minecraft.util.Identifier;
+import org.lwjgl.glfw.GLFW;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.world.ClientWorld;
 
@@ -26,6 +32,9 @@ public class DamageAlertClient implements ClientModInitializer {
 	private DamageTracker damageTracker;
 	private PortalTracker portalTracker;
 	private StateServer stateServer;
+	private EffectController controller;
+	private KeyBinding openMenuKey;
+	private String webUrl;
 
 	/** Das zuletzt gesehene Spieler-Objekt. Minecraft erzeugt bei Join, Respawn und Dimensionswechsel ein neues. */
 	private ClientPlayerEntity lastPlayer;
@@ -39,9 +48,17 @@ public class DamageAlertClient implements ClientModInitializer {
 
 		damageTracker = new DamageTracker(streamerBot, store);
 		portalTracker = new PortalTracker(streamerBot, store);
+		controller = new EffectController(store, streamerBot);
 
-		stateServer = new StateServer(store, streamerBot);
-		stateServer.start(config.statePort()); // bei belegtem Port nur Warnung
+		stateServer = new StateServer(controller);
+		if (stateServer.start(config.statePort())) { // bei belegtem Port nur Warnung
+			webUrl = "http://127.0.0.1:" + config.statePort() + "/";
+		}
+
+		// Taste fuer das Ingame-Menue (Standard J, aenderbar unter Optionen > Steuerung)
+		KeyBinding.Category category = KeyBinding.Category.create(Identifier.of(DamageAlert.MOD_ID, "main"));
+		openMenuKey = KeyBindingHelper.registerKeyBinding(
+				new KeyBinding("key.damagealert.open_menu", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_J, category));
 
 		ClientTickEvents.END_CLIENT_TICK.register(this::onEndTick);
 		ClientLifecycleEvents.CLIENT_STOPPING.register(client -> stateServer.stop());
@@ -63,6 +80,12 @@ public class DamageAlertClient implements ClientModInitializer {
 	}
 
 	private void tick(MinecraftClient client) {
+		while (openMenuKey.wasPressed()) {
+			if (client.currentScreen == null) {
+				client.setScreen(new DamageAlertScreen(null, controller, webUrl));
+			}
+		}
+
 		ClientPlayerEntity player = client.player;
 		ClientWorld world = client.world;
 

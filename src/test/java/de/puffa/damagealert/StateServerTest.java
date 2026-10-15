@@ -48,7 +48,7 @@ class StateServerTest {
 		});
 		mockBot.start();
 		store = ConfigStore.load(dir.resolve("damagealert.properties"));
-		server = new StateServer(store, new StreamerBotClient(mockBot.getAddress().getPort()));
+		server = new StateServer(new EffectController(store, new StreamerBotClient(mockBot.getAddress().getPort())));
 		assertTrue(server.start(0));
 		base = "http://127.0.0.1:" + server.port();
 	}

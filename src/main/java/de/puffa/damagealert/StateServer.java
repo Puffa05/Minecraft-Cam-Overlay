@@ -6,11 +6,8 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
-import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -28,24 +25,18 @@ import com.sun.net.httpserver.HttpServer;
  * </ul>
  */
 public final class StateServer {
-	/** So lange meldet ein Test-Button einen Zustand als "an". */
-	public static final long STATE_TEST_MILLIS = 5000;
 	/** Header, den nur die eigene Oberflaeche mitschickt (fremde Webseiten koennen ihn nicht ohne CORS-Freigabe setzen). */
 	static final String API_HEADER = "X-DamageAlert";
 
-	private final ConfigStore config;
-	private final StreamerBotClient streamerBot;
+	private final EffectController controller;
 	private volatile StateSnapshot snapshot = StateSnapshot.NOT_IN_WORLD;
-	/** Laufende Zustands-Tests: Effekt -> Ende (System.nanoTime). */
-	private final Map<Effect, Long> stateTests = new ConcurrentHashMap<>();
 
 	private HttpServer server;
 	private ExecutorService executor;
 	private int port;
 
-	public StateServer(ConfigStore config, StreamerBotClient streamerBot) {
-		this.config = config;
-		this.streamerBot = streamerBot;
+	public StateServer(EffectController controller) {
+		this.controller = controller;
 	}
 
 	/** Wird vom Client-Tick aufgerufen. */
@@ -55,22 +46,7 @@ public final class StateServer {
 
 	/** Was /state gerade ausliefert (mit Schaltern und laufenden Tests). */
 	public StateSnapshot effectiveSnapshot() {
-		return snapshot.effective(config::isEnabled, activeStateTests());
-	}
-
-	private Set<Effect> activeStateTests() {
-		if (stateTests.isEmpty()) {
-			return Set.of();
-		}
-		long now = System.nanoTime();
-		EnumSet<Effect> active = EnumSet.noneOf(Effect.class);
-		stateTests.forEach((effect, end) -> {
-			if (now - end < 0) {
-				active.add(effect);
-			}
-		});
-		stateTests.entrySet().removeIf(e -> now - e.getValue() >= 0);
-		return active;
+		return controller.effective(snapshot);
 	}
 
 	/**
@@ -198,8 +174,7 @@ public final class StateServer {
 					sendJson(exchange, 400, "{\"ok\":false,\"error\":\"effect oder enabled ungültig\"}");
 					return;
 				}
-				config.setEnabled(effect, Boolean.parseBoolean(enabled));
-				DamageAlert.LOGGER.info("[DamageAlert] Effekt {} {}", effect.id(), Boolean.parseBoolean(enabled) ? "an" : "aus");
+				controller.setEnabled(effect, Boolean.parseBoolean(enabled));
 				sendJson(exchange, 200, settingsJson());
 			}
 			case "/api/test" -> handleTest(exchange, q);
@@ -208,33 +183,16 @@ public final class StateServer {
 	}
 
 	private void handleTest(HttpExchange exchange, Map<String, String> q) throws IOException {
-		DamageAlertConfig c = config.get();
 		String action = q.get("action");
 		if (action != null) {
-			String name;
-			Map<String, ?> args;
-			switch (action) {
-				case "damage" -> {
-					name = c.actionDamage();
-					args = Map.of("damage", 2, "health", 18);
-				}
-				case "portalStart" -> {
-					name = c.actionPortalStart();
-					args = Map.of();
-				}
-				case "portalEnd" -> {
-					name = c.actionPortalEnd();
-					args = Map.of();
-				}
-				default -> {
-					sendJson(exchange, 400, "{\"ok\":false,\"error\":\"Unbekannte Action\"}");
-					return;
-				}
+			EffectController.TestEvent event = EffectController.TestEvent.byId(action);
+			if (event == null) {
+				sendJson(exchange, 400, "{\"ok\":false,\"error\":\"Unbekannte Action\"}");
+				return;
 			}
-			DamageAlert.LOGGER.info("[DamageAlert] Test-Event {} an Streamer.bot", name);
 			StreamerBotClient.SendResult result;
 			try {
-				result = streamerBot.doAction(name, args).get(6, TimeUnit.SECONDS);
+				result = controller.testEvent(event).get(6, TimeUnit.SECONDS);
 			} catch (Exception e) {
 				result = new StreamerBotClient.SendResult(false, 0, "Keine Antwort: " + e);
 			}
@@ -242,18 +200,15 @@ public final class StateServer {
 			return;
 		}
 
-		Effect state = Effect.byId(q.get("state"));
-		if (state == null || !state.isTestableState()) {
+		if (!controller.testState(Effect.byId(q.get("state")))) {
 			sendJson(exchange, 400, "{\"ok\":false,\"error\":\"Unbekannter oder nicht testbarer Zustand\"}");
 			return;
 		}
-		stateTests.put(state, System.nanoTime() + STATE_TEST_MILLIS * 1_000_000L);
-		DamageAlert.LOGGER.info("[DamageAlert] Test-Zustand {} fuer {} ms", state.id(), STATE_TEST_MILLIS);
-		sendJson(exchange, 200, "{\"ok\":true,\"millis\":" + STATE_TEST_MILLIS + "}");
+		sendJson(exchange, 200, "{\"ok\":true,\"millis\":" + EffectController.STATE_TEST_MILLIS + "}");
 	}
 
 	private String settingsJson() {
-		DamageAlertConfig c = config.get();
+		DamageAlertConfig c = controller.config().get();
 		StringBuilder effects = new StringBuilder("{");
 		for (Effect e : Effect.values()) {
 			if (effects.length() > 1) {
@@ -266,9 +221,9 @@ public final class StateServer {
 				+ ",\"actions\":{\"damage\":" + Json.string(c.actionDamage())
 				+ ",\"portalStart\":" + Json.string(c.actionPortalStart())
 				+ ",\"portalEnd\":" + Json.string(c.actionPortalEnd()) + "}"
-				+ ",\"streamerBot\":" + Json.string(streamerBot.endpoint().toString())
+				+ ",\"streamerBot\":" + Json.string(controller.streamerBot().endpoint().toString())
 				+ ",\"cooldownMs\":" + c.damageCooldownMs()
-				+ ",\"stateTestMillis\":" + STATE_TEST_MILLIS + "}";
+				+ ",\"stateTestMillis\":" + EffectController.STATE_TEST_MILLIS + "}";
 	}
 
 	// ------------------------------------------------------------------ Sicherheits-Pruefungen

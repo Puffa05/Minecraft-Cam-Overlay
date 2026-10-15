@@ -20,8 +20,15 @@ import com.sun.net.httpserver.HttpServer;
 
 import de.puffa.damagealert.ConfigStore;
 import de.puffa.damagealert.DamageAlertConfig;
+import de.puffa.damagealert.EffectController;
 import de.puffa.damagealert.StateServer;
 import de.puffa.damagealert.StreamerBotClient;
+import de.puffa.damagealert.client.DamageAlertScreen;
+import net.fabricmc.loader.api.FabricLoader;
+import net.minecraft.client.gui.widget.ButtonWidget;
+import net.minecraft.client.input.KeyInput;
+import net.minecraft.client.option.KeyBinding;
+import org.lwjgl.glfw.GLFW;
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestServerContext;
@@ -68,8 +75,8 @@ public class DamageAlertClientGameTest implements FabricClientGameTest {
 				&& state.contains("\"freeze\":0") && state.contains("\"biome\":null"), "Zustand ohne Welt");
 
 		// Belegter Port darf nur eine Warnung erzeugen (der Mod-Server belegt 7475 bereits)
-		StateServer second = new StateServer(new ConfigStore(Path.of("build-gametest-unused.properties"), DamageAlertConfig.defaults()),
-				new StreamerBotClient(7474));
+		StateServer second = new StateServer(new EffectController(
+				new ConfigStore(Path.of("build-gametest-unused.properties"), DamageAlertConfig.defaults()), new StreamerBotClient(7474)));
 		check(!second.start(7475), "Zweiter Server auf belegtem Port muss false liefern, ohne Exception");
 		check(getPage().contains("<title>Damage Alert</title>"), "Oberflaeche wird unter / ausgeliefert");
 
@@ -95,6 +102,7 @@ public class DamageAlertClientGameTest implements FabricClientGameTest {
 					&& state.contains("\"biome\":\"minecraft:plains\""), "Grundzustand Overworld");
 			ctx.takeScreenshot("01-grundzustand");
 
+			testScreen(ctx);
 			testDamage(ctx, server);
 			testDamageToggle(ctx, server);
 			testStates(ctx, server);
@@ -320,6 +328,90 @@ public class DamageAlertClientGameTest implements FabricClientGameTest {
 		ctx.waitTicks(3);
 		settle();
 		check(names().equals(List.of("Portal Ende", "Portal Start")), "Wieder an: Portal Start: " + events);
+	}
+
+	/** Ingame-Menue: per Taste oeffnen, schalten, testen, Abgleich mit der Weboberflaeche. */
+	private void testScreen(ClientGameTestContext ctx) {
+		// Auf Deutsch stellen, damit der Screenshot so aussieht wie bei dir
+		ctx.runOnClient(c -> {
+			c.options.language = "de_de";
+			c.getLanguageManager().setLanguage("de_de");
+			c.reloadResources();
+		});
+		ctx.waitFor(c -> c.getOverlay() == null, 1200);
+		events.clear();
+
+		KeyBinding key = KeyBinding.byId("key.damagealert.open_menu");
+		check(key != null, "Tastenbelegung registriert");
+		check(ctx.computeOnClient(c -> key.getBoundKeyTranslationKey()).equals("key.keyboard.j"), "Standard-Taste ist J");
+		ctx.getInput().pressKey(key);
+		ctx.waitForScreen(DamageAlertScreen.class);
+		check(true, "Taste J oeffnet das Menue");
+		check(events.isEmpty(), "Oeffnen sendet nichts");
+		ctx.takeScreenshot("06-menue");
+
+		// Schalter im Menue -> Config und Weboberflaeche
+		press(ctx, "toggle.damage");
+		check(cfg().contains("enabled.damage=false"), "Menue-Schalter speichert enabled.damage=false");
+		check(getSettings().contains("\"damage\":false"), "Weboberflaeche sieht den Menue-Schalter");
+		check(buttonText(ctx, "toggle.damage").equals("Schaden: Aus"), "Button zeigt 'Schaden: Aus', war: " + buttonText(ctx, "toggle.damage"));
+
+		// Schalter in der Weboberflaeche -> Menue aktualisiert sich
+		api("/api/toggle?effect=damage&enabled=true");
+		ctx.waitTicks(2);
+		check(buttonText(ctx, "toggle.damage").equals("Schaden: An"), "Menue uebernimmt Web-Schalter: " + buttonText(ctx, "toggle.damage"));
+
+		// Test-Button Event
+		press(ctx, "test.damage");
+		ctx.waitTicks(2);
+		settle();
+		ctx.waitTicks(2);
+		check(count("Minecraft Schaden") == 1 && last().body().contains("\"damage\":2,\"health\":18"), "Test-Button Schaden sendet: " + events);
+		String status = ctx.computeOnClient(c -> ((DamageAlertScreen) c.currentScreen).status().getString());
+		check(status.contains("✓") && status.contains("204"), "Menue zeigt Ergebnis: " + status);
+		ctx.takeScreenshot("07-menue-test-ergebnis");
+
+		// Test-Button Zustand
+		press(ctx, "test.underwater");
+		check(getState().contains("\"underwater\":true"), "Test Unterwasser im Menue -> /state underwater true");
+
+		press(ctx, "done");
+		ctx.waitForScreen(null);
+		check(true, "Fertig schliesst das Menue");
+		sleep(5200); // Zustands-Test ablaufen lassen
+		check(getState().contains("\"underwater\":false"), "Zustands-Test endet nach 5 s");
+		events.clear();
+	}
+
+	private static String cfg() {
+		try {
+			return java.nio.file.Files.readString(FabricLoader.getInstance().getConfigDir().resolve("damagealert.properties"));
+		} catch (IOException e) {
+			throw new RuntimeException(e);
+		}
+	}
+
+	private static void press(ClientGameTestContext ctx, String id) {
+		ctx.runOnClient(c -> {
+			ButtonWidget b = ((DamageAlertScreen) c.currentScreen).button(id);
+			if (b == null) {
+				throw new AssertionError("Button fehlt: " + id);
+			}
+			b.onPress(new KeyInput(GLFW.GLFW_KEY_UNKNOWN, 0, 0));
+		});
+	}
+
+	private static String buttonText(ClientGameTestContext ctx, String id) {
+		return ctx.computeOnClient(c -> ((DamageAlertScreen) c.currentScreen).button(id).getMessage().getString());
+	}
+
+	private String getSettings() {
+		try {
+			return http.send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:7475/api/settings")).build(),
+					HttpResponse.BodyHandlers.ofString()).body();
+		} catch (IOException | InterruptedException e) {
+			throw new RuntimeException(e);
+		}
 	}
 
 	private void testDamageToggle(ClientGameTestContext ctx, TestServerContext server) {

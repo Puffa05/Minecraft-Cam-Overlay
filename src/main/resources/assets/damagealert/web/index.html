@@ -56,6 +56,7 @@
   .banner { display: none; background: var(--err-soft); color: var(--err); border-radius: 10px; padding: 10px 14px; margin-bottom: 16px; }
   .banner.show { display: block; }
   code { font-size: 13px; }
+  kbd { font: 12px ui-monospace, monospace; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; }
   @media (max-width: 520px) {
     .row { grid-template-columns: auto 1fr; }
     .row > .right { grid-column: 1 / -1; }
@@ -73,7 +74,7 @@
 
   <section>
     <h2>Streamer.bot-Events</h2>
-    <p class="hint">Ausgeschaltete Events werden nicht gesendet. Test-Buttons senden immer, auch wenn der Schalter aus ist.
+    <p class="hint">Gleiche Schalter wie im Spielmenü (Taste <kbd>J</kbd>). Ausgeschaltete Events werden nicht gesendet. Test-Buttons senden immer, auch wenn der Schalter aus ist.
       Ziel: <code id="sbUrl">…</code></p>
     <div id="events"></div>
   </section>
@@ -232,13 +233,24 @@ async function pollState() {
     w.textContent = s.inWorld ? "in einer Welt" : "keine Welt geladen";
     w.className = "pill " + (s.inWorld ? "ok" : "");
     if (!settings) await init();
-    else showBanner(false);
+    else { showBanner(false); await refreshSettings(); }
   } catch (e) {
     const w = document.getElementById("world");
     w.textContent = "nicht verbunden";
     w.className = "pill bad";
     showBanner(true);
   }
+}
+
+/** Übernimmt Änderungen aus dem Ingame-Menü (oder einem anderen Browser-Tab). */
+async function refreshSettings() {
+  const fresh = await api("/api/settings");
+  for (const input of document.querySelectorAll("[data-effect]")) {
+    const on = !!fresh.effects[input.dataset.effect];
+    if (!input.disabled && input.checked !== on) input.checked = on;
+  }
+  settings = fresh;
+  syncRows();
 }
 
 async function init() {

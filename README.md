@@ -19,8 +19,12 @@ keine Eingaben, keine Mixins, keine Gameplay-Änderung.
 - In Streamer.bot: *Servers/Clients → HTTP Server* aktivieren (Port 7474) und Actions
   mit exakt diesen Namen anlegen. Die Args stehen in der Action als `%damage%` / `%health%` bereit.
 
-## Oberfläche: Effekte an/aus und testen
-Solange Minecraft mit dem Mod läuft: **http://127.0.0.1:7475/** im Browser öffnen.
+## Effekte an/aus und testen – im Spiel oder im Browser
+Beide Wege nutzen dieselben Einstellungen und zeigen Änderungen des anderen sofort an.
+- **Im Spiel:** Taste **J** öffnet das Damage-Alert-Menü (Taste änderbar unter
+  *Optionen → Steuerung → Damage Alert*). Reine Client-Anzeige, es geht nichts an den Server.
+- **Im Browser:** Solange Minecraft mit dem Mod läuft, **http://127.0.0.1:7475/** öffnen
+  (geht auch im Hauptmenü).
 - Jeder Effekt (Schaden, Portal, Unterwasser, Lava, Frieren, Regen, Gewitter, Biom, Dimension, Y)
   lässt sich einzeln abschalten. Das wirkt sofort und wird in der Config gespeichert.
 - **Test-Buttons:** Events werden einmal an Streamer.bot geschickt (mit Rückmeldung, ob es geklappt hat).
