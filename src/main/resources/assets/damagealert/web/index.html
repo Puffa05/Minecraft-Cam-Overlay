@@ -56,6 +56,11 @@
   .banner { display: none; background: var(--err-soft); color: var(--err); border-radius: 10px; padding: 10px 14px; margin-bottom: 16px; }
   .banner.show { display: block; }
   code { font-size: 13px; }
+  .deaths { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+  .deaths .count { display: flex; flex-direction: column; align-items: center; min-width: 70px; }
+  .deaths .count span { font-size: 34px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .deaths .count small { color: var(--muted); font-size: 12px; }
+  .deaths .actions { margin-left: auto; }
   kbd { font: 12px ui-monospace, monospace; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; }
   @media (max-width: 520px) {
     .row { grid-template-columns: auto 1fr; }
@@ -73,15 +78,31 @@
   <div id="banner" class="banner">Keine Verbindung zum Mod. Läuft Minecraft mit dem Mod?</div>
 
   <section>
-    <h2>Streamer.bot-Events</h2>
-    <p class="hint">Gleiche Schalter wie im Spielmenü (Taste <kbd>J</kbd>). Ausgeschaltete Events werden nicht gesendet. Test-Buttons senden immer, auch wenn der Schalter aus ist.
-      Ziel: <code id="sbUrl">…</code></p>
+    <h2>Ereignisse</h2>
+    <p class="hint">Gleiche Schalter wie im Spielmenü (Taste <kbd>J</kbd>). Ausgeschaltete Ereignisse zeigen die Overlays nicht an.
+      „Test“ spielt den Effekt einmal in allen offenen Overlays ab, auch wenn der Schalter aus ist.</p>
     <div id="events"></div>
   </section>
 
   <section>
-    <h2>Overlay-Zustände <span style="text-transform:none;letter-spacing:0">(<code>/state</code>)</span></h2>
-    <p class="hint">Ausgeschaltete Zustände meldet der Mod als „aus“ (false / 0 / leer). „Test“ meldet den Zustand
+    <h2>Todeszähler</h2>
+    <p class="hint">Zählt automatisch, wenn deine Herzen auf 0 fallen. Wird gespeichert und übersteht Neustarts.
+      „Stream“ vor jedem Stream auf 0 setzen.</p>
+    <div class="deaths">
+      <div class="count"><span id="dTotal">–</span><small>gesamt</small></div>
+      <div class="count"><span id="dSession">–</span><small>im Stream</small></div>
+      <div class="actions">
+        <button class="test" type="button" data-deaths="dec">−1</button>
+        <button class="test" type="button" data-deaths="inc">+1</button>
+        <button class="test" type="button" data-deaths="resetSession">Stream auf 0</button>
+        <button class="test" type="button" data-deaths="resetTotal">Alles auf 0 …</button>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Zustände</h2>
+    <p class="hint">Ausgeschaltete Zustände meldet der Mod den Overlays als „aus“. „Test“ meldet den Zustand
       <span id="testSec">5</span>&nbsp;Sekunden lang als „an“, auch ohne Welt.</p>
     <div id="states"></div>
   </section>
@@ -90,12 +111,11 @@
 <script>
 "use strict";
 const EVENTS = [
-  { id: "damage", name: "Schaden", sub: a => `Action „${a.damage}“ mit damage und health`,
-    tests: [{ action: "damage", label: "Test auslösen" }] },
-  { id: "portal", name: "Nether-Portal", sub: a => `Actions „${a.portalStart}“ / „${a.portalEnd}“`,
-    tests: [{ action: "portalStart", label: "Test Start" }, { action: "portalEnd", label: "Test Ende" }] },
+  { id: "damage", name: "Schaden", sub: "Kurzer roter Effekt, wenn deine Herzen sinken" },
+  { id: "death", name: "Tod", sub: "Effekt „Du bist gestorben“ (gezählt wird trotzdem)" },
 ];
 const STATES = [
+  { id: "portal", name: "Nether-Portal", sub: "Wirbel-Effekt, solange du im Portal stehst", test: true, fmt: s => yesNo(s.inPortal) },
   { id: "underwater", name: "Unterwasser", sub: "Augen unter Wasser", test: true, fmt: s => yesNo(s.underwater) },
   { id: "inLava", name: "In Lava", test: true, fmt: s => yesNo(s.inLava) },
   { id: "freeze", name: "Frieren", sub: "0 bis 1, wie das Frost-Overlay", test: true,
@@ -147,18 +167,17 @@ function switchFor(id, label) {
 }
 
 function render() {
-  document.getElementById("sbUrl").textContent = settings.streamerBot;
   document.getElementById("testSec").textContent = Math.round(settings.stateTestMillis / 1000);
 
   const ev = document.getElementById("events");
   ev.replaceChildren(...EVENTS.map(e => {
     const result = el("div", { class: "result", "data-result": e.id });
-    const buttons = e.tests.map(t => el("button", { class: "test", type: "button", "data-test": t.action,
-      onclick: ev2 => testAction(ev2.currentTarget, t.action, result) }, t.label));
+    const btn = el("button", { class: "test", type: "button", "data-test": e.id,
+      onclick: ev2 => testEvent(ev2.currentTarget, e.id, result) }, "Test");
     return el("div", { class: "row", "data-row": e.id },
       switchFor(e.id, e.name),
-      el("div", {}, el("div", { class: "name" }, e.name), el("div", { class: "sub" }, e.sub(settings.actions))),
-      el("div", { class: "right" }, el("div", { class: "actions" }, ...buttons), result));
+      el("div", {}, el("div", { class: "name" }, e.name), el("div", { class: "sub" }, e.sub)),
+      el("div", { class: "right" }, el("div", { class: "actions" }, btn), result));
   }));
 
   const st = document.getElementById("states");
@@ -186,17 +205,31 @@ function setResult(node, cls, msg) {
   node.textContent = msg;
 }
 
-async function testAction(btn, action, result) {
+async function testEvent(btn, id, result) {
   btn.disabled = true;
-  setResult(result, "info", "sende …");
   try {
-    const r = await api(`/api/test?action=${action}`, "POST");
-    if (r.ok) setResult(result, "ok", `✓ Streamer.bot hat angenommen (${r.status})`);
-    else setResult(result, "bad", "✗ " + (r.error || ("Status " + r.status)));
+    await api(`/api/test?event=${id}`, "POST");
+    setResult(result, "ok", "✓ im Overlay ausgelöst");
+    setTimeout(() => setResult(result, "", ""), 3000);
   } catch (e) {
     setResult(result, "bad", "✗ " + e.message);
   } finally {
     btn.disabled = false;
+  }
+}
+
+function showDeaths(d) {
+  document.getElementById("dTotal").textContent = d.total;
+  document.getElementById("dSession").textContent = d.session;
+}
+
+async function deathsOp(op) {
+  if (op === "resetTotal" && !confirm("Wirklich beide Zähler (gesamt und Stream) auf 0 setzen?")) return;
+  try {
+    settings = await api(`/api/deaths?op=${op}`, "POST");
+    showDeaths(settings.deaths);
+  } catch (e) {
+    showBanner(true, "Todeszähler: " + e.message);
   }
 }
 
@@ -251,14 +284,19 @@ async function refreshSettings() {
   }
   settings = fresh;
   syncRows();
+  showDeaths(fresh.deaths);
 }
 
 async function init() {
   settings = await api("/api/settings");
   render();
+  showDeaths(settings.deaths);
   showBanner(false);
 }
 
+for (const b of document.querySelectorAll("[data-deaths]")) {
+  b.addEventListener("click", () => deathsOp(b.dataset.deaths));
+}
 init().catch(() => showBanner(true));
 pollState();
 setInterval(pollState, 500);

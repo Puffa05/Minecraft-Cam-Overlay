@@ -1,0 +1,115 @@
+<!doctype html>
+<!--
+  GAMEPLAY-SZENE: alle Spiel-Effekte + Kamerarahmen + Info-Kasten (Tode, Biom, Hoehe).
+  OBS: Browserquelle -> "Lokale Datei" -> diese Datei, 1920 x 1080, ganz oben ueber Spiel und Kamera.
+  Die Kamera-Quelle in OBS genau unter den Rahmen legen (Standard: unten rechts, 480 x 270).
+
+  Einstellungen: CONFIG unten aendern, oder als URL-Parameter (file:///C:/.../gameplay.html?cam=bl&name=Puffa05):
+    ?name=Puffa05            Name auf dem Kamerarahmen (leer = kein Namensschild)
+    ?cam=br|bl|tr|aus        Kamera unten rechts / unten links / oben rechts / keine
+    ?camw=480&camh=270       Groesse der Kamera-Flaeche in Pixeln
+    ?info=aus                Info-Kasten oben links ausblenden
+    ?demo                    Demo-Modus zum Ausprobieren ohne Minecraft
+-->
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Damage Alert – Gameplay</title>
+<link rel="stylesheet" href="shared/minecraft.css">
+<link rel="stylesheet" href="shared/effects.css">
+<style>
+  .info {
+    position: absolute; left: 40px; top: 36px;
+    display: grid; gap: 8px; font-size: 26px; min-width: 300px;
+    transition: transform .3s;
+  }
+  .info .row { display: flex; align-items: center; gap: 12px; white-space: nowrap; }
+  .info .row .icon { width: 32px; height: 32px; }
+  .info .deaths { font-size: 34px; font-weight: 700; }
+  .info .deaths small { font-size: 20px; color: #aaa; font-weight: 400; margin-left: 6px; }
+  .info .muted { color: #c8c8c8; }
+  .info.bump { animation: bump .6s ease; }
+  @keyframes bump { 30% { transform: scale(1.18); } }
+  .info .world { transition: opacity .4s; }
+
+  .cam { position: absolute; width: var(--camw); height: var(--camh); }
+  .nameplate {
+    position: absolute; left: 50%; transform: translateX(-50%); top: -70px;
+    display: flex; align-items: center; gap: 12px; font-size: 26px; white-space: nowrap;
+  }
+  .nameplate .icon { width: 30px; height: 26px; }
+</style>
+</head>
+<body>
+<div id="fx"></div>
+
+<div class="info mc-tooltip mc-text" id="info">
+  <div class="row deaths"><span data-icon="skull"></span><span>Tode: <b id="dSession">0</b></span><small id="dTotal"></small></div>
+  <div class="world" id="world">
+    <div class="row"><span data-icon="grass" id="bIcon"></span><span id="biome">–</span></div>
+    <div class="row muted"><span data-icon="compass"></span><span id="pos">–</span></div>
+  </div>
+</div>
+
+<div class="mc-frame wood cam" id="cam">
+  <div class="nameplate mc-tooltip mc-text" id="nameplate"><span data-icon="heart"></span><span id="name"></span></div>
+</div>
+
+<script src="shared/textures.js"></script>
+<script src="shared/damagealert.js"></script>
+<script src="shared/effects.js"></script>
+<script>
+  const CONFIG = {
+    name: MC.param("name", "Puffa05"),
+    cam: MC.param("cam", "br"),        // br = unten rechts, bl = unten links, tr = oben rechts, aus = keine Kamera
+    camWidth: MC.param("camw", 480),
+    camHeight: MC.param("camh", 270),
+    info: MC.param("info", true),
+    margin: 48,                         // Abstand der Kamera zum Bildrand
+  };
+
+  // Kamerarahmen positionieren
+  const cam = document.getElementById("cam");
+  document.documentElement.style.setProperty("--camw", CONFIG.camWidth + "px");
+  document.documentElement.style.setProperty("--camh", CONFIG.camHeight + "px");
+  // Innenflaeche der Kamera (Rahmen ragt 28 px nach aussen)
+  const m = CONFIG.margin + 28;
+  const camX = CONFIG.cam.includes("l") ? m : 1920 - m - CONFIG.camWidth;
+  const camY = CONFIG.cam.includes("b") ? 1080 - m - CONFIG.camHeight : m;
+  if (CONFIG.cam === "aus") cam.style.display = "none";
+  else {
+    cam.style.left = camX + "px";
+    cam.style.top = camY + "px";
+    if (CONFIG.cam === "tr") cam.querySelector(".nameplate").style.cssText += "top:auto;bottom:-70px";
+  }
+  if (CONFIG.name) document.getElementById("name").textContent = CONFIG.name;
+  else document.getElementById("nameplate").style.display = "none";
+
+  const info = document.getElementById("info");
+  if (!CONFIG.info) info.style.display = "none";
+  MC.applyIcons();
+
+  MC.effects.mount(document.getElementById("fx"), {
+    toasts: "left", toastTop: 210,
+    // keine Effekte ueber der Webcam (inkl. Rahmen)
+    exclude: CONFIG.cam === "aus" ? null : { x: camX - 32, y: camY - 32, w: CONFIG.camWidth + 64, h: CONFIG.camHeight + 64 },
+  });
+
+  MC.live.on("state", s => {
+    if (s.deaths) {
+      document.getElementById("dSession").textContent = s.deaths.session;
+      document.getElementById("dTotal").textContent = `gesamt ${s.deaths.total}`;
+    }
+    document.getElementById("world").style.opacity = s.inWorld ? 1 : 0;
+    if (s.inWorld) {
+      document.getElementById("biome").textContent = s.biomeName || s.biome || "–";
+      const dim = MC.live.dimensionName(s.dimension);
+      document.getElementById("pos").textContent = s.y !== null ? `Y ${s.y} · ${dim}` : dim;
+      const icon = s.dimension === "minecraft:the_nether" ? "portal" : s.dimension === "minecraft:the_end" ? "globe" : "grass";
+      document.getElementById("bIcon").style.backgroundImage = `url(${MC.icon(icon)})`;
+    }
+  });
+  MC.live.on("death", () => { info.classList.remove("bump"); void info.offsetWidth; info.classList.add("bump"); });
+</script>
+</body>
+</html>

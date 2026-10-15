@@ -1,13 +1,12 @@
 package de.puffa.damagealert;
 
-import java.util.Locale;
-
-/** Alles, was sich in der Oberflaeche einzeln an- und abschalten laesst. */
+/** Alles, was sich in Menue und Weboberflaeche einzeln an- und abschalten laesst. */
 public enum Effect {
-	// Einmalige Events an Streamer.bot
+	// Einmalige Ereignisse (das Overlay spielt einen kurzen Effekt ab)
 	DAMAGE("damage", true, false),
-	PORTAL("portal", true, false),
-	// Dauerzustaende fuer das Overlay (/state)
+	DEATH("death", true, false),
+	// Dauerzustaende
+	PORTAL("portal", false, true),
 	UNDERWATER("underwater", false, true),
 	IN_LAVA("inLava", false, true),
 	FREEZE("freeze", false, true),
@@ -55,10 +54,5 @@ public enum Effect {
 			}
 		}
 		return null;
-	}
-
-	@Override
-	public String toString() {
-		return id.toLowerCase(Locale.ROOT);
 	}
 }

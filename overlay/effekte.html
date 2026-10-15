@@ -1,0 +1,34 @@
+<!doctype html>
+<!--
+  EFFEKTE (nur die Effekt-Ebene, ohne Kamerarahmen)
+  Fuer Szenen, in denen du eigene Elemente hast, aber die Spiel-Effekte trotzdem willst.
+  OBS: Browserquelle -> "Lokale Datei" -> diese Datei, 1920 x 1080, ueber die Spielaufnahme legen.
+
+  URL-Parameter (in OBS bei "Lokale Datei" nicht moeglich -> dann CONFIG unten aendern,
+  oder statt "Lokale Datei" als URL eintragen: file:///C:/Pfad/effekte.html?toasts=right):
+    ?toasts=left|right|aus   Position der Biom-/Dimensions-Meldungen
+    ?demo                    Demo-Modus zum Ausprobieren ohne Minecraft
+-->
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Damage Alert – Effekte</title>
+<link rel="stylesheet" href="shared/minecraft.css">
+<link rel="stylesheet" href="shared/effects.css">
+</head>
+<body>
+<div id="fx"></div>
+<script src="shared/textures.js"></script>
+<script src="shared/damagealert.js"></script>
+<script src="shared/effects.js"></script>
+<script>
+  const CONFIG = {
+    toasts: MC.param("toasts", "left"),   // "left", "right" oder "aus"
+  };
+  MC.effects.mount(document.getElementById("fx"), {
+    toasts: CONFIG.toasts === "aus" ? false : CONFIG.toasts,
+    toastTop: 40,
+  });
+</script>
+</body>
+</html>

@@ -1,21 +1,19 @@
 package de.puffa.damagealert.client;
 
-import java.util.Map;
-
 import de.puffa.damagealert.ConfigStore;
 import de.puffa.damagealert.Effect;
-import de.puffa.damagealert.StreamerBotClient;
+import de.puffa.damagealert.OverlayEvents;
 import net.minecraft.client.network.ClientPlayerEntity;
 
-/** Erkennt sinkende HP und meldet sie an Streamer.bot. */
+/** Erkennt sinkende HP und meldet sie als Ereignis an die Overlays. */
 final class DamageTracker {
 	/**
-	 * So viele Ticks (2 Sekunden) nach Join/Respawn/Dimensionswechsel keine Schadens-Events.
+	 * So viele Ticks (2 Sekunden) nach Join/Respawn/Dimensionswechsel keine Schadens-Ereignisse.
 	 * Gezaehlt wird erst, wenn der Spieler fertig geladen ist (vorher nimmt der Server ohnehin keinen Schaden an).
 	 */
 	static final int GRACE_TICKS = 40;
 
-	private final StreamerBotClient streamerBot;
+	private final OverlayEvents events;
 	private final ConfigStore config;
 
 	private float lastHealth = -1f;
@@ -23,8 +21,8 @@ final class DamageTracker {
 	private long lastSentNanos;
 	private boolean sentOnce;
 
-	DamageTracker(StreamerBotClient streamerBot, ConfigStore config) {
-		this.streamerBot = streamerBot;
+	DamageTracker(OverlayEvents events, ConfigStore config) {
+		this.events = events;
 		this.config = config;
 	}
 
@@ -54,7 +52,7 @@ final class DamageTracker {
 			if (!sentOnce || now - lastSentNanos >= cooldownNanos) {
 				sentOnce = true;
 				lastSentNanos = now;
-				streamerBot.doAction(config.get().actionDamage(), Map.of("damage", damage, "health", health));
+				events.damage(damage, health);
 			}
 			// Schaden innerhalb des Cooldowns wird verworfen (nicht nachgeholt)
 		}

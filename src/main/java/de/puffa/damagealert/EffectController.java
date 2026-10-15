@@ -3,21 +3,20 @@ package de.puffa.damagealert;
 import java.util.EnumSet;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Gemeinsame Logik fuer Weboberflaeche und Ingame-Menue: Effekte an/aus schalten und testen.
- * Beide greifen auf dieselbe Instanz zu, dadurch sind sie immer auf demselben Stand.
- * Thread-sicher: wird vom Render-Thread (Menue) und von HTTP-Threads (Web) benutzt.
+ * Gemeinsame Logik fuer Weboberflaeche und Ingame-Menue: Effekte an/aus schalten, testen
+ * und den Todeszaehler korrigieren. Beide greifen auf dieselbe Instanz zu und sind dadurch
+ * immer auf demselben Stand. Thread-sicher (Render-Thread und HTTP-Threads).
  */
 public final class EffectController {
 	/** So lange meldet ein Zustands-Test den Zustand als "an". */
 	public static final long STATE_TEST_MILLIS = 5000;
 
-	/** Events, die sich per Test-Button einmal an Streamer.bot schicken lassen. */
+	/** Ereignisse, die sich per Test-Button einmal im Overlay ausloesen lassen. */
 	public enum TestEvent {
-		DAMAGE("damage"), PORTAL_START("portalStart"), PORTAL_END("portalEnd");
+		DAMAGE("damage"), DEATH("death");
 
 		private final String id;
 
@@ -40,21 +39,27 @@ public final class EffectController {
 	}
 
 	private final ConfigStore config;
-	private final StreamerBotClient streamerBot;
+	private final OverlayEvents events;
+	private final DeathCounter deaths;
 	/** Laufende Zustands-Tests: Effekt -> Ende (System.nanoTime). */
 	private final Map<Effect, Long> stateTests = new ConcurrentHashMap<>();
 
-	public EffectController(ConfigStore config, StreamerBotClient streamerBot) {
+	public EffectController(ConfigStore config, OverlayEvents events, DeathCounter deaths) {
 		this.config = config;
-		this.streamerBot = streamerBot;
+		this.events = events;
+		this.deaths = deaths;
 	}
 
 	public ConfigStore config() {
 		return config;
 	}
 
-	public StreamerBotClient streamerBot() {
-		return streamerBot;
+	public OverlayEvents events() {
+		return events;
+	}
+
+	public DeathCounter deaths() {
+		return deaths;
 	}
 
 	public boolean isEnabled(Effect effect) {
@@ -66,23 +71,13 @@ public final class EffectController {
 		DamageAlert.LOGGER.info("[DamageAlert] Effekt {} {}", effect.id(), enabled ? "an" : "aus");
 	}
 
-	/** Schickt ein Event einmal an Streamer.bot, unabhaengig vom Schalter. */
-	public CompletableFuture<StreamerBotClient.SendResult> testEvent(TestEvent event) {
-		DamageAlertConfig c = config.get();
-		return switch (event) {
-			case DAMAGE -> {
-				DamageAlert.LOGGER.info("[DamageAlert] Test-Event {}", c.actionDamage());
-				yield streamerBot.doAction(c.actionDamage(), Map.of("damage", 2, "health", 18));
-			}
-			case PORTAL_START -> {
-				DamageAlert.LOGGER.info("[DamageAlert] Test-Event {}", c.actionPortalStart());
-				yield streamerBot.doAction(c.actionPortalStart());
-			}
-			case PORTAL_END -> {
-				DamageAlert.LOGGER.info("[DamageAlert] Test-Event {}", c.actionPortalEnd());
-				yield streamerBot.doAction(c.actionPortalEnd());
-			}
-		};
+	/** Loest ein Ereignis einmal im Overlay aus, unabhaengig vom Schalter. Zaehlt keinen Tod. */
+	public void testEvent(TestEvent event) {
+		DamageAlert.LOGGER.info("[DamageAlert] Test-Ereignis {}", event.id());
+		switch (event) {
+			case DAMAGE -> events.damage(2, 18);
+			case DEATH -> events.death();
+		}
 	}
 
 	/** Meldet einen Zustand {@link #STATE_TEST_MILLIS} ms lang als "an". */
@@ -113,5 +108,14 @@ public final class EffectController {
 	/** Snapshot mit Schaltern und laufenden Tests, so wie /state ihn ausliefert. */
 	public StateSnapshot effective(StateSnapshot raw) {
 		return raw.effective(config::isEnabled, activeStateTests());
+	}
+
+	/** Kompletter /state-Inhalt: Zustand + Todeszaehler + Ereignisse. */
+	public String stateJson(StateSnapshot raw) {
+		StringBuilder sb = new StringBuilder("{");
+		effective(raw).appendJsonFields(sb);
+		sb.append(",\"deaths\":").append(deaths.get().toJson());
+		sb.append(",\"events\":").append(events.toJson());
+		return sb.append('}').toString();
 	}
 }

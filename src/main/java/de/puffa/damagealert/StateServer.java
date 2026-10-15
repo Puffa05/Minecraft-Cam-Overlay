@@ -10,7 +10,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 
 import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpExchange;
@@ -19,7 +18,7 @@ import com.sun.net.httpserver.HttpServer;
 /**
  * Kleiner lokaler HTTP-Server, nur an 127.0.0.1 gebunden:
  * <ul>
- *   <li>{@code GET /state} - Spielzustand als JSON fuer das OBS-Overlay (CORS offen)</li>
+ *   <li>{@code GET /state} - Spielzustand, Todeszaehler und Ereignisse als JSON fuer die OBS-Overlays (CORS offen)</li>
  *   <li>{@code GET /} - Oberflaeche zum An-/Abschalten und Testen der Effekte</li>
  *   <li>{@code /api/...} - wird nur von der Oberflaeche selbst benutzt (kein CORS, Origin-Pruefung)</li>
  * </ul>
@@ -44,9 +43,9 @@ public final class StateServer {
 		this.snapshot = newSnapshot;
 	}
 
-	/** Was /state gerade ausliefert (mit Schaltern und laufenden Tests). */
-	public StateSnapshot effectiveSnapshot() {
-		return controller.effective(snapshot);
+	/** Was /state gerade ausliefert (mit Schaltern, Tests, Todeszaehler und Ereignissen). */
+	public String stateJson() {
+		return controller.stateJson(snapshot);
 	}
 
 	/**
@@ -56,8 +55,7 @@ public final class StateServer {
 	public boolean start(int port) {
 		try {
 			HttpServer s = HttpServer.create(new InetSocketAddress("127.0.0.1", port), 0);
-			// Mehrere Threads: ein Test-Button wartet bis zu ein paar Sekunden auf Streamer.bot,
-			// /state soll in der Zeit trotzdem antworten
+			// Mehrere Threads, weil mehrere Overlays (eins pro OBS-Szene) gleichzeitig abfragen
 			ExecutorService ex = Executors.newFixedThreadPool(4, r -> {
 				Thread t = new Thread(r, "DamageAlert-StateServer");
 				t.setDaemon(true); // haelt das Beenden des Spiels nicht auf
@@ -146,7 +144,7 @@ public final class StateServer {
 			sendText(exchange, 405, "text/plain; charset=utf-8", "Nur GET");
 			return;
 		}
-		sendText(exchange, 200, "application/json; charset=utf-8", effectiveSnapshot().toJson());
+		sendText(exchange, 200, "application/json; charset=utf-8", stateJson());
 	}
 
 	private void handleApi(HttpExchange exchange, String method, String path) throws IOException {
@@ -178,25 +176,21 @@ public final class StateServer {
 				sendJson(exchange, 200, settingsJson());
 			}
 			case "/api/test" -> handleTest(exchange, q);
+			case "/api/deaths" -> handleDeaths(exchange, q);
 			default -> sendJson(exchange, 404, "{\"ok\":false,\"error\":\"Unbekannter API-Pfad\"}");
 		}
 	}
 
 	private void handleTest(HttpExchange exchange, Map<String, String> q) throws IOException {
-		String action = q.get("action");
-		if (action != null) {
-			EffectController.TestEvent event = EffectController.TestEvent.byId(action);
-			if (event == null) {
-				sendJson(exchange, 400, "{\"ok\":false,\"error\":\"Unbekannte Action\"}");
+		String event = q.get("event");
+		if (event != null) {
+			EffectController.TestEvent e = EffectController.TestEvent.byId(event);
+			if (e == null) {
+				sendJson(exchange, 400, "{\"ok\":false,\"error\":\"Unbekanntes Ereignis\"}");
 				return;
 			}
-			StreamerBotClient.SendResult result;
-			try {
-				result = controller.testEvent(event).get(6, TimeUnit.SECONDS);
-			} catch (Exception e) {
-				result = new StreamerBotClient.SendResult(false, 0, "Keine Antwort: " + e);
-			}
-			sendJson(exchange, 200, result.toJson());
+			controller.testEvent(e);
+			sendJson(exchange, 200, "{\"ok\":true}");
 			return;
 		}
 
@@ -205,6 +199,23 @@ public final class StateServer {
 			return;
 		}
 		sendJson(exchange, 200, "{\"ok\":true,\"millis\":" + EffectController.STATE_TEST_MILLIS + "}");
+	}
+
+	private void handleDeaths(HttpExchange exchange, Map<String, String> q) throws IOException {
+		DeathCounter d = controller.deaths();
+		DeathCounter.Counts c;
+		switch (q.getOrDefault("op", "")) {
+			case "inc" -> c = d.adjust(1);
+			case "dec" -> c = d.adjust(-1);
+			case "resetSession" -> c = d.resetSession();
+			case "resetTotal" -> c = d.resetTotal();
+			default -> {
+				sendJson(exchange, 400, "{\"ok\":false,\"error\":\"op muss inc, dec, resetSession oder resetTotal sein\"}");
+				return;
+			}
+		}
+		DamageAlert.LOGGER.info("[DamageAlert] Todeszaehler {} -> gesamt {}, Stream {}", q.get("op"), c.total(), c.session());
+		sendJson(exchange, 200, settingsJson());
 	}
 
 	private String settingsJson() {
@@ -218,10 +229,7 @@ public final class StateServer {
 		}
 		effects.append('}');
 		return "{\"effects\":" + effects
-				+ ",\"actions\":{\"damage\":" + Json.string(c.actionDamage())
-				+ ",\"portalStart\":" + Json.string(c.actionPortalStart())
-				+ ",\"portalEnd\":" + Json.string(c.actionPortalEnd()) + "}"
-				+ ",\"streamerBot\":" + Json.string(controller.streamerBot().endpoint().toString())
+				+ ",\"deaths\":" + controller.deaths().get().toJson()
 				+ ",\"cooldownMs\":" + c.damageCooldownMs()
 				+ ",\"stateTestMillis\":" + EffectController.STATE_TEST_MILLIS + "}";
 	}

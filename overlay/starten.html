@@ -1,0 +1,94 @@
+<!doctype html>
+<!--
+  "GLEICH GEHT'S LOS"-SZENE: scrollende Minecraft-Landschaft, Countdown, Lade-Balken, Splash-Spruch.
+  OBS: Browserquelle -> "Lokale Datei" -> diese Datei, 1920 x 1080, als einzige Quelle der Szene.
+  Tipp: In OBS bei der Quelle "Browser neu laden, wenn Szene aktiv wird" anhaken, dann startet der Countdown jedes Mal neu.
+
+  Einstellungen: CONFIG unten aendern, oder als URL-Parameter (file:///C:/.../starten.html?min=10):
+    ?min=5            Countdown in Minuten (0 = kein Countdown)
+    ?name=Puffa05     Name oben
+    ?titel=...        eigener Titel
+-->
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Damage Alert – Gleich geht's los</title>
+<link rel="stylesheet" href="shared/minecraft.css">
+<style>
+  canvas { position: absolute; inset: 0; width: 1920px; height: 1080px; }
+  .center { position: absolute; left: 50%; top: 150px; transform: translateX(-50%); text-align: center; }
+  .name { font-size: 40px; letter-spacing: 6px; color: #fff; }
+  .title { font-size: 112px; line-height: 1.1; margin-top: 10px; white-space: nowrap; }
+  .splash { position: absolute; right: -170px; top: 130px; font-size: 40px; }
+  .box { margin: 54px auto 0; width: 820px; display: grid; gap: 22px; padding: 30px 40px; }
+  .label { font-size: 30px; color: #e8e8e8; }
+  .count { font-size: 96px; font-weight: 700; color: #fff; letter-spacing: 4px; }
+  .loading { display: flex; justify-content: space-between; font-size: 24px; color: #cfcfcf; }
+  .mc-bar { height: 28px; }
+</style>
+</head>
+<body>
+<canvas id="land"></canvas>
+<div class="center">
+  <div class="name mc-text" id="name"></div>
+  <div class="title mc-stone-title" id="title">Gleich geht's los!</div>
+  <div class="splash mc-splash" id="splash"></div>
+  <div class="box mc-tooltip mc-text">
+    <div class="label" id="label">Der Stream startet in</div>
+    <div class="count" id="count">05:00</div>
+    <div class="mc-bar"><i id="bar"></i></div>
+    <div class="loading"><span id="loadText">Welt wird generiert …</span><span id="pct">0 %</span></div>
+  </div>
+</div>
+
+<script src="shared/textures.js"></script>
+<script src="shared/damagealert.js"></script>
+<script src="shared/landscape.js"></script>
+<script>
+  const CONFIG = {
+    minutes: MC.param("min", 5),
+    name: MC.param("name", "Puffa05"),
+    title: MC.param("titel", "Gleich geht's los!"),
+    splashes: [
+      "Frisch generiert!", "Jetzt mit 100 % mehr Creepern!", "Nicht in Lava springen!", "Hallo Chat!",
+      "Diamanten? Vielleicht!", "Auch in Pixeln!", "Kekse für alle!", "Bett nicht im Nether benutzen!",
+      "Holz hacken mit der Hand!", "Seed: geheim!",
+    ],
+    loading: ["Welt wird generiert …", "Bäume werden gepflanzt …", "Creeper werden versteckt …", "Diamanten werden vergraben …", "Chunks werden geladen …"],
+  };
+
+  MC.landscape(document.getElementById("land"), { speed: 40 });
+  document.getElementById("name").textContent = CONFIG.name;
+  document.getElementById("title").textContent = CONFIG.title;
+
+  // Splash-Spruch wechselt alle 8 s
+  let si = Math.floor(Math.random() * CONFIG.splashes.length);
+  const splash = document.getElementById("splash");
+  function nextSplash() { splash.textContent = CONFIG.splashes[si++ % CONFIG.splashes.length]; }
+  nextSplash(); setInterval(nextSplash, 8000);
+
+  // Countdown + Lade-Balken
+  const total = CONFIG.minutes * 60 * 1000;
+  const start = Date.now();
+  const pad = n => String(n).padStart(2, "0");
+  function tick() {
+    const left = Math.max(0, total - (Date.now() - start));
+    const pct = total ? Math.min(100, Math.round(((total - left) / total) * 100)) : 100;
+    if (!total) {
+      document.getElementById("label").textContent = "Der Stream startet";
+      document.getElementById("count").textContent = "gleich!";
+    } else if (left === 0) {
+      document.getElementById("label").textContent = "Der Stream startet";
+      document.getElementById("count").textContent = "jeden Moment!";
+    } else {
+      const s = Math.ceil(left / 1000);
+      document.getElementById("count").textContent = `${pad(Math.floor(s / 60))}:${pad(s % 60)}`;
+    }
+    document.getElementById("bar").style.width = pct + "%";
+    document.getElementById("pct").textContent = pct + " %";
+    document.getElementById("loadText").textContent = CONFIG.loading[Math.min(CONFIG.loading.length - 1, Math.floor(pct / 20))];
+  }
+  tick(); setInterval(tick, 250);
+</script>
+</body>
+</html>

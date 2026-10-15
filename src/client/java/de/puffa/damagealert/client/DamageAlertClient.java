@@ -3,10 +3,11 @@ package de.puffa.damagealert.client;
 import de.puffa.damagealert.ConfigStore;
 import de.puffa.damagealert.DamageAlert;
 import de.puffa.damagealert.DamageAlertConfig;
+import de.puffa.damagealert.DeathCounter;
 import de.puffa.damagealert.EffectController;
+import de.puffa.damagealert.OverlayEvents;
 import de.puffa.damagealert.StateServer;
 import de.puffa.damagealert.StateSnapshot;
-import de.puffa.damagealert.StreamerBotClient;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -22,14 +23,13 @@ import net.minecraft.client.world.ClientWorld;
 
 /**
  * Einstiegspunkt des Mods. Liest einmal pro Tick (20x pro Sekunde) den Spielzustand:
- * <ul>
- *   <li>einmalige Events (Schaden, Portal) gehen an Streamer.bot</li>
- *   <li>dauerhafte Zustaende landen als Schnappschuss im lokalen Zustands-Server</li>
- * </ul>
+ * Zustaende, Ereignisse (Schaden, Tod) und der Todeszaehler landen im lokalen Server,
+ * von dem sich die OBS-Overlays alles abholen.
  * Der Mod liest nur. Er sendet keine Pakete an den Server und aendert nichts am Gameplay.
  */
 public class DamageAlertClient implements ClientModInitializer {
 	private DamageTracker damageTracker;
+	private DeathTracker deathTracker;
 	private PortalTracker portalTracker;
 	private StateServer stateServer;
 	private EffectController controller;
@@ -44,11 +44,13 @@ public class DamageAlertClient implements ClientModInitializer {
 	public void onInitializeClient() {
 		ConfigStore store = ConfigStore.load(DamageAlertConfig.defaultPath());
 		DamageAlertConfig config = store.get();
-		StreamerBotClient streamerBot = new StreamerBotClient(config.streamerBotPort());
+		OverlayEvents events = new OverlayEvents();
+		DeathCounter deaths = DeathCounter.load(DeathCounter.defaultPath());
 
-		damageTracker = new DamageTracker(streamerBot, store);
-		portalTracker = new PortalTracker(streamerBot, store);
-		controller = new EffectController(store, streamerBot);
+		damageTracker = new DamageTracker(events, store);
+		deathTracker = new DeathTracker(deaths, events, store);
+		portalTracker = new PortalTracker();
+		controller = new EffectController(store, events, deaths);
 
 		stateServer = new StateServer(controller);
 		if (stateServer.start(config.statePort())) { // bei belegtem Port nur Warnung
@@ -63,8 +65,8 @@ public class DamageAlertClient implements ClientModInitializer {
 		ClientTickEvents.END_CLIENT_TICK.register(this::onEndTick);
 		ClientLifecycleEvents.CLIENT_STOPPING.register(client -> stateServer.stop());
 
-		DamageAlert.LOGGER.info("[DamageAlert] geladen. Streamer.bot-Port {}, Zustands-Port {}",
-				config.streamerBotPort(), config.statePort());
+		DamageAlert.LOGGER.info("[DamageAlert] geladen. Overlay-Port {}, Tode bisher: {} (Stream: {})",
+				config.statePort(), deaths.get().total(), deaths.get().session());
 	}
 
 	private void onEndTick(MinecraftClient client) {
@@ -91,7 +93,8 @@ public class DamageAlertClient implements ClientModInitializer {
 
 		if (player == null || world == null) {
 			if (lastPlayer != null) {
-				// Welt/Server verlassen: offenes Portal-Event sauber beenden
+				// Welt/Server verlassen
+				deathTracker.onPlayerReplaced(lastPlayer);
 				portalTracker.onLeftWorld();
 				lastPlayer = null;
 			}
@@ -101,6 +104,8 @@ public class DamageAlertClient implements ClientModInitializer {
 
 		if (player != lastPlayer) {
 			// Join, Respawn oder Dimensionswechsel
+			deathTracker.onPlayerReplaced(lastPlayer);
+			deathTracker.onNewPlayer(player);
 			damageTracker.onNewPlayer(player);
 			portalTracker.onNewPlayer();
 			lastPlayer = player;
@@ -111,7 +116,8 @@ public class DamageAlertClient implements ClientModInitializer {
 		boolean loaded = handler != null && handler.isLoaded();
 
 		damageTracker.tick(player, loaded);
+		deathTracker.tick(player, loaded);
 		portalTracker.tick(player, world, loaded);
-		stateServer.publish(StateCollector.collect(player, world));
+		stateServer.publish(StateCollector.collect(player, world, portalTracker.isActive()));
 	}
 }

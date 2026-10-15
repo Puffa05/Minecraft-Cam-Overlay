@@ -1,9 +1,9 @@
 package de.puffa.damagealert;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.EnumSet;
-import java.util.Map;
 import java.util.Set;
 
 import org.junit.jupiter.api.Test;
@@ -23,33 +23,40 @@ class JsonAndSnapshotTest {
 		assertEquals("null", Json.string(null));
 	}
 
-	@Test
-	void streamerBotBody() {
-		assertEquals("{\"action\":{\"name\":\"Portal \\\"X\\\"\"},\"args\":{}}",
-				StreamerBotClient.buildBody("Portal \"X\"", Map.of()));
-		String body = StreamerBotClient.buildBody("Minecraft Schaden", Map.of("damage", 2.5f));
-		assertEquals("{\"action\":{\"name\":\"Minecraft Schaden\"},\"args\":{\"damage\":2.5}}", body);
-	}
-
 	private static final StateSnapshot FULL = new StateSnapshot(true, true, true, 0.5f,
-			"minecraft:cherry_grove", "minecraft:overworld", 64, true, true);
+			"minecraft:cherry_grove", "Kirschberghain", "minecraft:overworld", 64, true, true, true, 16f, 20f);
 
 	@Test
 	void allEnabledChangesNothing() {
 		assertEquals(FULL, FULL.effective(e -> true, Set.of()));
 		assertEquals("{\"inWorld\":true,\"underwater\":true,\"inLava\":true,\"freeze\":0.5,\"biome\":\"minecraft:cherry_grove\","
-				+ "\"dimension\":\"minecraft:overworld\",\"y\":64,\"raining\":true,\"thundering\":true}", FULL.toJson());
+				+ "\"biomeName\":\"Kirschberghain\",\"dimension\":\"minecraft:overworld\",\"y\":64,\"raining\":true,\"thundering\":true,\"inPortal\":true,"
+				+ "\"health\":16,\"maxHealth\":20}", FULL.toJson());
 	}
 
 	@Test
 	void disabledStatesReportOff() {
 		StateSnapshot s = FULL.effective(e -> false, Set.of());
-		assertEquals(new StateSnapshot(true, false, false, 0f, null, null, null, false, false), s);
+		assertEquals(new StateSnapshot(true, false, false, 0f, null, null, null, null, false, false, false, 16f, 20f), s);
 	}
 
 	@Test
 	void testsWinEvenWhenDisabledAndWithoutWorld() {
-		StateSnapshot s = StateSnapshot.NOT_IN_WORLD.effective(e -> false, EnumSet.of(Effect.UNDERWATER, Effect.FREEZE));
-		assertEquals(new StateSnapshot(false, true, false, 1f, null, null, null, false, false), s);
+		StateSnapshot s = StateSnapshot.NOT_IN_WORLD.effective(e -> false, EnumSet.of(Effect.UNDERWATER, Effect.FREEZE, Effect.PORTAL));
+		assertEquals(new StateSnapshot(false, true, false, 1f, null, null, null, null, false, false, true, null, null), s);
+		assertTrue(s.toJson().contains("\"health\":null"));
+	}
+
+	@Test
+	void eventsCountUp() {
+		OverlayEvents e = new OverlayEvents();
+		assertTrue(e.toJson().contains("\"damage\":{\"seq\":0"), e.toJson());
+		e.damage(4, 16);
+		e.damage(1.5f, 14.5f);
+		e.death();
+		String json = e.toJson();
+		assertTrue(json.contains("\"damage\":{\"seq\":2,\"amount\":1.5,\"health\":14.5}"), json);
+		assertTrue(json.contains("\"death\":{\"seq\":1}"), json);
+		assertTrue(json.startsWith("{\"epoch\":"), json);
 	}
 }

@@ -1,0 +1,82 @@
+<!doctype html>
+<!--
+  PAUSE-SZENE ("Gleich zurueck"): Erde-Hintergrund wie im Minecraft-Menue, Pausen-Timer, wechselnde Tipps.
+  OBS: Browserquelle -> "Lokale Datei" -> diese Datei, 1920 x 1080, als einzige Quelle der Szene.
+  Tipp: In OBS "Browser neu laden, wenn Szene aktiv wird" anhaken, dann startet der Pausen-Timer bei 0.
+
+  Einstellungen: CONFIG unten aendern, oder als URL-Parameter:
+    ?titel=...        eigener Titel (Standard: Gleich zurück!)
+-->
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Damage Alert – Pause</title>
+<link rel="stylesheet" href="shared/minecraft.css">
+<style>
+  body { display: grid; place-items: center; }
+  .wrap { text-align: center; display: grid; gap: 30px; justify-items: center; }
+  .small { font-size: 34px; color: #c8c8c8; letter-spacing: 3px; }
+  .title { font-size: 140px; }
+  .timer { font-size: 40px; display: flex; gap: 16px; align-items: center; }
+  .timer .icon { width: 44px; height: 44px; }
+  .buttons { display: grid; gap: 16px; margin-top: 10px; }
+  .mc-button { min-width: 640px; font-size: 32px; }
+  .mc-button.off { color: #f0f0f0; background-image: linear-gradient(rgba(0,0,0,.25), rgba(0,0,0,.35)), var(--tex-stone); background-size: auto, 64px 64px; }
+  .tip { position: absolute; bottom: 70px; left: 50%; transform: translateX(-50%); font-size: 32px; width: 1400px; text-align: center; color: #ffff7f; transition: opacity .6s; }
+  .deaths { position: absolute; right: 48px; top: 40px; font-size: 28px; display: flex; gap: 12px; align-items: center; }
+  .deaths .icon { width: 34px; height: 34px; }
+  .dots::after { content: ""; animation: dots 1.5s steps(4) infinite; }
+  @keyframes dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
+</style>
+</head>
+<body class="bg-dirt">
+<div class="deaths mc-tooltip mc-text" id="deaths"><span data-icon="skull"></span><span>Tode im Stream: <b id="dSession">–</b></span></div>
+<div class="wrap">
+  <div class="small mc-text">Spiel pausiert</div>
+  <div class="title mc-stone-title" id="title">Gleich zurück!</div>
+  <div class="timer mc-text"><span data-icon="clock"></span><span>Pause seit <b id="since">00:00</b></span></div>
+  <div class="buttons">
+    <div class="mc-button off">Zurück zum Spiel<span class="dots"></span></div>
+    <div class="mc-button off">Snacks holen ✓</div>
+  </div>
+</div>
+<div class="tip mc-text" id="tip"></div>
+
+<script src="shared/textures.js"></script>
+<script src="shared/damagealert.js"></script>
+<script>
+  const CONFIG = {
+    title: MC.param("titel", "Gleich zurück!"),
+    tips: [
+      "Tipp: Lederstiefel schützen vor dem Einsinken in Pulverschnee.",
+      "Tipp: Ein Bett im Nether ist keine gute Idee.",
+      "Tipp: Piglins mögen Gold. Sehr.",
+      "Tipp: Ein Totem der Unsterblichkeit rettet dich genau einmal.",
+      "Tipp: Wasser in den Nether mitnehmen klappt nicht.",
+      "Tipp: Creeper umarmen ist keine gute Idee.",
+      "Tipp: Schilde halten Pfeile auf.",
+      "Tipp: Endermen mögen es nicht, angeschaut zu werden.",
+    ],
+  };
+  MC.applyIcons();
+  document.getElementById("title").textContent = CONFIG.title;
+  const start = Date.now();
+  const pad = n => String(n).padStart(2, "0");
+  setInterval(() => {
+    const s = Math.floor((Date.now() - start) / 1000);
+    document.getElementById("since").textContent = `${pad(Math.floor(s / 60))}:${pad(s % 60)}`;
+  }, 500);
+  const tip = document.getElementById("tip");
+  let ti = Math.floor(Math.random() * CONFIG.tips.length);
+  function nextTip() {
+    tip.style.opacity = 0;
+    setTimeout(() => { tip.textContent = CONFIG.tips[ti++ % CONFIG.tips.length]; tip.style.opacity = 1; }, 600);
+  }
+  nextTip(); setInterval(nextTip, 9000);
+  MC.live.on("state", s => {
+    document.getElementById("deaths").style.opacity = s.deaths ? 1 : 0;
+    if (s.deaths) document.getElementById("dSession").textContent = s.deaths.session;
+  });
+</script>
+</body>
+</html>
