@@ -8,13 +8,33 @@ import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.Executors;
 import java.util.function.Supplier;
+
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.resource.Resource;
+import net.minecraft.util.Identifier;
 
 /** Mini-HTTP-Server, nur vom eigenen PC aus erreichbar (127.0.0.1). */
 public final class StateServer {
 
     private static HttpServer server;
+
+    /**
+     * Texturen, die das Overlay aus deinem installierten Minecraft laden darf (inkl. Ressourcenpaket).
+     * Nur diese feste Liste, keine beliebigen Dateien. So landen keine Mojang-Dateien im Repo.
+     */
+    private static final Map<String, Identifier> TEXTURES = Map.of(
+            "nether_portal", Identifier.ofVanilla("textures/block/nether_portal.png"),
+            "water_still", Identifier.ofVanilla("textures/block/water_still.png"),
+            "underwater", Identifier.ofVanilla("textures/misc/underwater.png"),
+            "bubble", Identifier.ofVanilla("textures/particle/bubble.png"),
+            "cod", Identifier.ofVanilla("textures/item/cod.png"),
+            "salmon", Identifier.ofVanilla("textures/item/salmon.png"),
+            "tropical_fish", Identifier.ofVanilla("textures/item/tropical_fish.png"),
+            "pufferfish", Identifier.ofVanilla("textures/item/pufferfish.png"));
 
     private StateServer() {}
 
@@ -22,6 +42,7 @@ public final class StateServer {
         try {
             server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), port), 0);
             server.createContext("/state", exchange -> handle(exchange, json));
+            server.createContext("/texture/", StateServer::handleTexture);
             server.setExecutor(Executors.newSingleThreadExecutor(r -> {
                 Thread t = new Thread(r, "damagealert-state-server");
                 t.setDaemon(true);
@@ -40,6 +61,40 @@ public final class StateServer {
         if (server != null) {
             server.stop(0);
             server = null;
+        }
+    }
+
+    /** GET /texture/nether_portal.png usw.: liefert die PNG-Datei aus dem laufenden Spiel. */
+    private static void handleTexture(HttpExchange exchange) throws IOException {
+        try {
+            var headers = exchange.getResponseHeaders();
+            headers.set("Access-Control-Allow-Origin", "*");
+            String name = exchange.getRequestURI().getPath().substring("/texture/".length()).replace(".png", "");
+            Identifier id = TEXTURES.get(name);
+            byte[] body = null;
+            if (id != null) {
+                Optional<Resource> resource = MinecraftClient.getInstance().getResourceManager().getResource(id);
+                if (resource.isPresent()) {
+                    try (var in = resource.get().getInputStream()) {
+                        body = in.readAllBytes();
+                    }
+                }
+            }
+            if (body == null) {
+                exchange.sendResponseHeaders(404, -1);
+                return;
+            }
+            headers.set("Content-Type", "image/png");
+            headers.set("Cache-Control", "no-store");
+            exchange.sendResponseHeaders(200, body.length);
+            try (OutputStream out = exchange.getResponseBody()) {
+                out.write(body);
+            }
+        } catch (RuntimeException e) {
+            // Darf das Spiel nie stoeren: z. B. waehrend Ressourcen neu geladen werden
+            exchange.sendResponseHeaders(503, -1);
+        } finally {
+            exchange.close();
         }
     }
 

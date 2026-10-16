@@ -73,6 +73,17 @@ Im Ordner [`download/`](download/) liegt immer der aktuelle Stand
 | `y` | Höhe |
 | `raining` / `thundering` | Regen / Gewitter |
 
+### Original-Texturen
+Portal und Unterwasser benutzen die Grafiken aus deinem Minecraft: die animierte Portal-Textur,
+Wasser, Blasen sowie Kabeljau, Lachs, Tropenfisch und Kugelfisch. Der Mod liefert sie unter
+`http://127.0.0.1:7475/texture/<name>.png` (nur diese feste Liste, auch aus deinem Ressourcenpaket).
+Im Repo liegen keine Mojang-Dateien. Läuft Minecraft nicht (z. B. beim Testen mit `?demo`), nimmt
+das Overlay selbst gezeichnete Pixel-Ersatzgrafiken.
+
+Der Portal-Effekt verhält sich wie im Spiel: Er steigt im Portal in 4 s auf volle Stärke und klingt
+draußen in 1 s ab. Wie stark er höchstens wird, stellst du oben in `cam-themes.html` mit
+`PORTAL_MAX` ein (1.0 = wie im Spiel).
+
 ## Einstellungen
 
 `config/damagealert.properties` im Profil-Ordner, wird beim ersten Start angelegt:
