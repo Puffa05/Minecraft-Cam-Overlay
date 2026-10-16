@@ -3,12 +3,12 @@
 	"id": "damagealert",
 	"version": "${version}",
 	"name": "Damage Alert",
-	"description": "Meldet Ingame-Ereignisse an Streamer.bot und stellt Spielzustaende fuer ein OBS-Overlay bereit. Nur lesend.",
+	"description": "Stellt den Minecraft-Spielzustand lokal unter http://127.0.0.1:7475/state bereit, fuer ein OBS-Kamera-Overlay. Nur lesend.",
 	"authors": ["Puffa05"],
 	"license": "MIT",
 	"environment": "client",
 	"entrypoints": {
-		"client": ["de.puffa.damagealert.client.DamageAlertClient"]
+		"client": ["de.puffa.damagealert.DamageAlertClient"]
 	},
 	"depends": {
 		"fabricloader": ">=0.19.5",
