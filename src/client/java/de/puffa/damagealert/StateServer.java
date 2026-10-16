@@ -8,6 +8,7 @@ import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Executors;
@@ -26,15 +27,27 @@ public final class StateServer {
      * Texturen, die das Overlay aus deinem installierten Minecraft laden darf (inkl. Ressourcenpaket).
      * Nur diese feste Liste, keine beliebigen Dateien. So landen keine Mojang-Dateien im Repo.
      */
-    private static final Map<String, Identifier> TEXTURES = Map.of(
-            "nether_portal", Identifier.ofVanilla("textures/block/nether_portal.png"),
-            "water_still", Identifier.ofVanilla("textures/block/water_still.png"),
-            "underwater", Identifier.ofVanilla("textures/misc/underwater.png"),
-            "bubble", Identifier.ofVanilla("textures/particle/bubble.png"),
-            "cod", Identifier.ofVanilla("textures/item/cod.png"),
-            "salmon", Identifier.ofVanilla("textures/item/salmon.png"),
-            "tropical_fish", Identifier.ofVanilla("textures/item/tropical_fish.png"),
-            "pufferfish", Identifier.ofVanilla("textures/item/pufferfish.png"));
+    private static final Map<String, Identifier> TEXTURES = buildTextureList();
+
+    private static Map<String, Identifier> buildTextureList() {
+        Map<String, Identifier> m = new HashMap<>();
+        m.put("nether_portal", Identifier.ofVanilla("textures/block/nether_portal.png"));
+        m.put("water_still", Identifier.ofVanilla("textures/block/water_still.png"));
+        m.put("underwater", Identifier.ofVanilla("textures/misc/underwater.png"));
+        m.put("bubble", Identifier.ofVanilla("textures/particle/bubble.png"));
+        m.put("cod", Identifier.ofVanilla("textures/item/cod.png"));
+        m.put("salmon", Identifier.ofVanilla("textures/item/salmon.png"));
+        m.put("tropical_fish", Identifier.ofVanilla("textures/item/tropical_fish.png"));
+        m.put("pufferfish", Identifier.ofVanilla("textures/item/pufferfish.png"));
+        m.put("powder_snow_outline", Identifier.ofVanilla("textures/misc/powder_snow_outline.png"));
+        for (int i = 0; i < 12; i++) { // Kirschblueten-Partikel
+            m.put("cherry_" + i, Identifier.ofVanilla("textures/particle/cherry_" + i + ".png"));
+        }
+        for (int i = 0; i < 8; i++) {  // Schneeflocken-Partikel
+            m.put("generic_" + i, Identifier.ofVanilla("textures/particle/generic_" + i + ".png"));
+        }
+        return Map.copyOf(m);
+    }
 
     private StateServer() {}
 

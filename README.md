@@ -74,8 +74,9 @@ Im Ordner [`download/`](download/) liegt immer der aktuelle Stand
 | `raining` / `thundering` | Regen / Gewitter |
 
 ### Original-Texturen
-Portal und Unterwasser benutzen die Grafiken aus deinem Minecraft: die animierte Portal-Textur,
-Wasser, Blasen sowie Kabeljau, Lachs, Tropenfisch und Kugelfisch. Der Mod liefert sie unter
+Alle Themes benutzen die Grafiken aus deinem Minecraft: die animierte Portal-Textur, Wasser,
+Blasen, Kabeljau, Lachs, Tropenfisch und Kugelfisch, den Pulverschnee-Frostrand mit Schneeflocken
+und die Kirschblätter-Partikel. Der Mod liefert sie unter
 `http://127.0.0.1:7475/texture/<name>.png` (nur diese feste Liste, auch aus deinem Ressourcenpaket).
 Im Repo liegen keine Mojang-Dateien. Läuft Minecraft nicht (z. B. beim Testen mit `?demo`), nimmt
 das Overlay selbst gezeichnete Pixel-Ersatzgrafiken.

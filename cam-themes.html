@@ -373,67 +373,77 @@ function drawPuffer(a, t) {
   ctx.restore();
 }
 
-// ---------------- Theme: Frieren ----------------
-let frost = [];
-function buildFrost() {
-  frost = [];
-  const reach = 0.24 * M;
-  const edgeDist = (x, y) => Math.min(x, W - x, y, H - y);
-  function grow(x, y, ang, len, depth) {
-    const steps = 6, seg = len / steps;
-    let cx = x, cy = y;
-    for (let s = 0; s < steps && frost.length < 2500; s++) {
-      ang += rnd(-0.25, 0.25);
-      const nx = cx + Math.cos(ang) * seg, ny = cy + Math.sin(ang) * seg;
-      frost.push({ x1: cx, y1: cy, x2: nx, y2: ny, d: edgeDist(nx, ny) / reach, w: Math.max(0.6, 1.6 - depth * 0.5) });
-      if (depth < 3 && Math.random() < 0.4) {
-        grow(nx, ny, ang + (Math.random() < 0.5 ? -1 : 1) * rnd(0.6, 1.1), len * 0.5, depth + 1);
-      }
-      cx = nx; cy = ny;
+// ---------------- Theme: Frieren (wie in Minecraft) ----------------
+// Minecraft legt beim Frieren die Pulverschnee-Frosttextur ueber das ganze Bild, Deckkraft = freeze.
+// Dazu fallen am Rand ein paar Schneeflocken (die Partikel, die Pulverschnee im Spiel erzeugt).
+loadTexture('powder_snow_outline', () => pixelCanvas(256, 256, g => {   // Ersatz: Eiskristalle am Rand
+  const r = seeded(17);
+  const cols = ['#e8fbff', '#bff1ff', '#8fe3ff', '#ffffff'];
+  for (let y = 0; y < 256; y++) for (let x = 0; x < 256; x++) {
+    const d = Math.min(x, 255 - x, y, 255 - y) / 256;
+    const corner = Math.min(Math.hypot(x, y), Math.hypot(255 - x, y), Math.hypot(x, 255 - y), Math.hypot(255 - x, 255 - y)) / 256;
+    if (r() < Math.pow(Math.max(0, 1 - d / 0.07), 1.5) + Math.pow(Math.max(0, 1 - corner / 0.35), 2) * 0.6) {
+      g.fillStyle = cols[Math.floor(r() * cols.length)];
+      g.fillRect(x, y, 1, 1);
     }
   }
-  for (let i = 0; i < 44; i++) {
-    const e = i % 4, p = Math.random();
-    let x, y, ang;
-    if (e === 0) { x = p * W; y = 0; ang = Math.PI / 2; }
-    else if (e === 1) { x = W; y = p * H; ang = Math.PI; }
-    else if (e === 2) { x = p * W; y = H; ang = -Math.PI / 2; }
-    else { x = 0; y = p * H; ang = 0; }
-    grow(x, y, ang + rnd(-0.6, 0.6), rnd(0.1, 0.2) * M, 0);
-  }
+}));
+for (let i = 0; i < 8; i++) {
+  loadTexture('generic_' + i, () => pixelCanvas(8, 8, g => {      // Ersatz: weisser Pixel-Punkt
+    const n = Math.max(1, 4 - Math.floor(i / 2));
+    g.fillStyle = '#fff';
+    g.fillRect(4 - Math.ceil(n / 2), 4 - Math.ceil(n / 2), n, n);
+  }));
 }
-function drawFreeze(a, f) {
+const flakes = Array.from({ length: 26 }, () => newFlake(true));
+function newFlake(anywhere) {
+  const left = Math.random() < 0.5; // nur an den Raendern, nicht uebers Gesicht
+  return {
+    x: left ? rnd(0.0, 0.2) : rnd(0.8, 1.0), y: anywhere ? Math.random() : rnd(-0.15, -0.02),
+    vy: rnd(0.05, 0.11), sway: rnd(0.005, 0.015), phase: rnd(0, 10), age: rnd(0, 8)
+  };
+}
+function drawFreeze(a, f, t, dt) {
   if (f <= 0.001) return;
   ctx.globalCompositeOperation = 'source-over';
-  const w = f * 0.2 * M;
-  const col = (o) => `rgba(215, 238, 255, ${o})`;
-  const edges = [
-    [0, 0, 0, w, 0, 0, W, w], [0, H, 0, H - w, 0, H - w, W, w],
-    [0, 0, w, 0, 0, 0, w, H], [W, 0, W - w, 0, W - w, 0, w, H]
-  ];
-  for (const [x1, y1, x2, y2, rx, ry, rw, rh] of edges) {
-    const g = ctx.createLinearGradient(x1, y1, x2, y2);
-    g.addColorStop(0, col(0.55 * a * f));
-    g.addColorStop(1, col(0));
-    ctx.fillStyle = g;
-    ctx.fillRect(rx, ry, rw, rh);
+  ctx.imageSmoothingEnabled = false;
+  const outline = tex.powder_snow_outline;
+  ctx.globalAlpha = a * f;                                   // wie im Spiel: Deckkraft = freeze
+  ctx.drawImage(outline, 0, 0, W, H);                        // ueber die ganze Cam gestreckt
+  // Schneeflocken: je staerker das Frieren, desto mehr
+  const P = px();
+  const visible = Math.round(flakes.length * f);
+  for (let i = 0; i < flakes.length; i++) {
+    const fl = flakes[i];
+    fl.y += fl.vy * dt;
+    fl.age += dt;
+    if (fl.y > 1.05) flakes[i] = newFlake(false);
+    if (i >= visible) continue;
+    const sprite = tex['generic_' + (7 - Math.min(7, Math.floor(fl.age) % 8))]; // wird mit der Zeit kleiner
+    const size = 8 * P * 0.75;
+    ctx.globalAlpha = a * Math.min(1, f * 1.5) * 0.9;
+    ctx.drawImage(sprite, snap(fl.x * W + Math.sin(t + fl.phase) * fl.sway * W), snap(fl.y * H), size, size);
   }
-  ctx.strokeStyle = `rgba(240, 250, 255, ${0.75 * a})`;
-  ctx.lineCap = 'round';
-  for (const s of frost) {
-    if (s.d > f) continue;
-    ctx.lineWidth = s.w;
-    ctx.beginPath(); ctx.moveTo(s.x1, s.y1); ctx.lineTo(s.x2, s.y2); ctx.stroke();
-  }
+  ctx.globalAlpha = 1;
 }
 
-// ---------------- Theme: Kirschblüten ----------------
+// ---------------- Theme: Kirschblueten (wie in Minecraft) ----------------
+// Die Original-Kirschblaetter-Partikel (3 x 3 Pixel, 12 Varianten): trudeln langsam herab,
+// drehen sich dabei (im Spiel +-30 Grad pro Sekunde, mit leichter Beschleunigung) und pendeln seitlich.
+for (let i = 0; i < 12; i++) {
+  loadTexture('cherry_' + i, () => pixelCanvas(3, 3, g => {       // Ersatz: rosa Pixel-Blatt
+    const shades = ['#f7b9d6', '#ef9ac4', '#e77fb3'];
+    g.fillStyle = shades[i % 3];
+    for (const [x, y] of [[1, 0], [2, 0], [0, 1], [1, 1], [2, 1], [0, 2], [1, 2]]) g.fillRect(x, y, 1, 1);
+  }));
+}
 const petals = Array.from({ length: 24 }, () => newPetal(true));
 function newPetal(anywhere) {
   return {
     x: Math.random(), y: anywhere ? Math.random() : rnd(-0.15, -0.03),
-    size: rnd(5, 10), rot: rnd(0, Math.PI * 2), vr: rnd(-1.5, 1.5),
-    vy: rnd(0.04, 0.09), sway: rnd(0.01, 0.03), phase: rnd(0, 10), light: rnd(82, 92)
+    sprite: Math.floor(Math.random() * 12), scale: Math.random() < 0.5 ? 1 : 1.5,
+    rot: rnd(0, Math.PI * 2), vr: (Math.random() < 0.5 ? -1 : 1) * Math.PI / 6, ar: rnd(-0.3, 0.3),
+    vy: rnd(0.04, 0.08), sway: rnd(0.01, 0.03), phase: rnd(0, 10)
   };
 }
 function drawCherry(a, t, dt) {
@@ -445,20 +455,22 @@ function drawCherry(a, t, dt) {
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, W, H);
   }
+  ctx.imageSmoothingEnabled = false;
+  const P = px();
   for (let i = 0; i < petals.length; i++) {
     const p = petals[i];
     p.y += p.vy * dt;
     p.x += Math.sin(t * 1.2 + p.phase) * p.sway * dt;
+    p.vr += p.ar * dt;                 // Drehung wird langsam schneller/langsamer
     p.rot += p.vr * dt;
     if (p.y > 1.05) petals[i] = newPetal(false);
+    const img = tex['cherry_' + p.sprite];
+    const size = img.width * P * 1.5 * p.scale;
     ctx.save();
-    ctx.translate(p.x * W, p.y * H);
+    ctx.globalAlpha = 0.95 * a;
+    ctx.translate(snap(p.x * W), snap(p.y * H));
     ctx.rotate(p.rot);
-    ctx.scale(1, 0.55 + 0.35 * Math.sin(t * 2 + p.phase));
-    ctx.fillStyle = `hsla(340, 85%, ${p.light}%, ${0.85 * a})`;
-    ctx.beginPath(); ctx.ellipse(0, 0, p.size, p.size * 0.6, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = `hsla(335, 70%, 70%, ${0.5 * a})`;
-    ctx.beginPath(); ctx.ellipse(-p.size * 0.3, 0, p.size * 0.35, p.size * 0.2, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.drawImage(img, -size / 2, -size / 2, size, size);
     ctx.restore();
   }
 }
@@ -497,7 +509,6 @@ function drawHit(now) {
 function resize() {
   W = c.width = innerWidth; H = c.height = innerHeight;
   D = Math.max(W, H); M = Math.min(W, H);
-  buildFrost();
 }
 resize();
 addEventListener('resize', resize);
@@ -528,7 +539,7 @@ function frame(now) {
   ctx.clearRect(0, 0, W, H);
   if (alpha.cherry > 0)     drawCherry(alpha.cherry * STRENGTH, t, dt);
   if (alpha.underwater > 0) drawUnderwater(alpha.underwater * STRENGTH, t, dt);
-  if (alpha.freeze > 0)     drawFreeze(alpha.freeze * STRENGTH, freezeLevel);
+  if (alpha.freeze > 0)     drawFreeze(alpha.freeze * STRENGTH, freezeLevel, t, dt);
   if (alpha.portal > 0)     drawPortal(alpha.portal * STRENGTH, t);
   drawHit(now); // Schaden immer obendrauf, unabhängig vom Theme
 
