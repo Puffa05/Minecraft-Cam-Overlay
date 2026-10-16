@@ -46,6 +46,7 @@ Im Ordner [`download/`](download/) liegt immer der aktuelle Stand
 
 ### 3. Prüfen
 - Läuft Minecraft mit dem Mod, zeigt http://127.0.0.1:7475/state im Browser den aktuellen Zustand.
+- Einstellungen für eigene Videos: http://127.0.0.1:7475/ (siehe unten).
 - Overlay ohne Minecraft ansehen: im Browser `cam-themes.html?demo` öffnen (wechselt alle 6 s das Theme)
   oder gezielt `?theme=portal`, `?theme=underwater`, `?theme=freeze`, `?theme=cherry`, `?theme=lightning`.
 
@@ -54,6 +55,40 @@ Bei jedem echten Blitz im Spiel zuckt am Rand der Cam ein Minecraft-Blitz herab 
 kurz auf, nahe Blitze stärker als ferne. Es kommen nur Blitze an, die dein Spiel auch anzeigt: Wie
 weit das reicht, bestimmt die Sichtweite des Servers (im Test: bis ca. 60–100 Blöcke).
 Stärke und Reichweite stellst du oben in `cam-themes.html` mit `LIGHTNING_ALPHA` und `LIGHTNING_FAR` ein.
+
+### Eigene Videos statt der eingebauten Themes
+Für Portal, Unterwasser, Frieren und Kirschblüten kannst du statt des eingebauten Effekts ein eigenes
+Video (MP4 oder WebM) abspielen lassen:
+
+1. Minecraft mit dem Mod starten.
+2. Im normalen Browser **http://127.0.0.1:7475/** öffnen.
+3. Beim gewünschten Theme den vollständigen Pfad eintragen, z. B. `C:\Videos\portal.mp4`
+   (Explorer: Umschalt + Rechtsklick auf die Datei → „Als Pfad kopieren“, Anführungszeichen stören nicht).
+4. Transparenz wählen, in der Vorschau prüfen, **Speichern**. OBS übernimmt es nach spätestens 2 s,
+   ohne die Browser-Quelle neu zu laden.
+
+Pfad leeren = wieder der eingebaute Effekt. Das Video läuft in Schleife und ohne Ton, solange das
+Theme aktiv ist, blendet wie die anderen Themes über und beginnt beim nächsten Mal von vorn. Beim
+Frieren wird es wie im Spiel umso deutlicher, je mehr du frierst. Es wird so skaliert, dass es die
+ganze Cam füllt (überstehende Ränder werden abgeschnitten).
+
+**Transparenz:** MP4 kann selbst keine Transparenz speichern. Das Overlay rechnet sie deshalb aus jedem
+Bild heraus (auf der Grafikkarte):
+
+| Einstellung | Wofür |
+|---|---|
+| Schwarz ausblenden | Effekt-Clips auf schwarzem Hintergrund (Feuer, Partikel, Blitze): Dunkles wird durchsichtig |
+| Farbe ausblenden | Greenscreen: in die Vorschau auf den grünen Hintergrund klicken, dann passt die Farbe genau |
+| Keine | WebM (VP9) mit echtem Alphakanal, die schon durchsichtig sind |
+
+Mit *Toleranz* und *Weiche Kante* stellst du ein, wie viel ausgeblendet wird und wie weich der Übergang ist.
+
+**Formate:** MP4 mit H.264 oder WebM mit VP9. Spielt ein MP4 nicht ab (z. B. H.265/HEVC), umwandeln:
+`ffmpeg -i video.mp4 -c:v libvpx-vp9 -b:v 2M -an video.webm`
+
+Die Pfade stehen in `config/damagealert.properties` (`video.<theme>.*`). Der Mod liefert nur genau
+diese eingestellten Dateien aus (`/video/<theme>`), und Einstellungen lassen sich nur über die Seite
+auf 127.0.0.1 ändern, nicht von anderen Webseiten aus.
 
 ## Was der Mod liefert
 
@@ -100,7 +135,8 @@ draußen in 1 s ab. Wie stark er höchstens wird, stellst du oben in `cam-themes
 port=7475
 ```
 Der Port muss zu `STATE_URL` oben in `cam-themes.html` passen. Effekt-Einstellungen (Stärke,
-Dauer, Überblenden) stehen ebenfalls oben in `cam-themes.html`.
+Dauer, Überblenden) stehen ebenfalls oben in `cam-themes.html`. Eigene Videos stellst du auf
+http://127.0.0.1:7475/ ein, sie landen als `video.*` in derselben Datei.
 
 > Hattest du eine ältere Version dieses Mods installiert, liegt dort evtl. noch eine alte
 > `damagealert.properties` (mit `state.port=…`, Streamer.bot-Einträgen usw.). Die kannst du
@@ -119,6 +155,8 @@ gradlew.bat runClient    :: startet Minecraft mit dem Mod zum Ausprobieren
 src/client/java/de/puffa/damagealert/
   DamageAlertClient.java   liest jeden Tick den Zustand, baut das JSON
   StateServer.java         Mini-HTTP-Server, nur an 127.0.0.1
+  VideoConfig.java         eigene Videos: Einstellungen lesen, prüfen, speichern
+src/client/resources/damagealert/settings.html   Einstellungsseite (http://127.0.0.1:7475/)
 src/main/resources/fabric.mod.json
 cam-themes.html            OBS-Overlay
 download/                  fertige Dateien (von "build" befüllt)

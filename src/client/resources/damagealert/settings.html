@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cam-Overlay Einstellungen</title>
+<style>
+  :root { color-scheme: dark; --bg: #16181d; --card: #20232a; --line: #343842; --text: #e6e8ec; --dim: #9aa1ad;
+          --accent: #7c5cff; --ok: #4cc38a; --err: #ff6b6b; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, "Segoe UI", sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 96px; }
+  h1 { font-size: 22px; margin: 0 0 6px; }
+  p.lead { color: var(--dim); margin: 0 0 20px; max-width: 760px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 500px), 1fr)); gap: 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  .card h2 { font-size: 17px; margin: 0; }
+  .card .when { color: var(--dim); font-size: 13px; margin: 2px 0 12px; }
+  label { display: block; font-size: 13px; color: var(--dim); margin: 10px 0 4px; }
+  input[type=text], select { width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--line);
+          background: #15171c; color: var(--text); font: inherit; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .row > * { flex: 1; }
+  .row > .fixed { flex: none; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  input[type=color] { width: 44px; height: 34px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: none; }
+  .val { font-variant-numeric: tabular-nums; color: var(--text); }
+  .status { font-size: 13px; margin-top: 4px; min-height: 1.2em; color: var(--dim); }
+  .status.ok { color: var(--ok); } .status.err { color: var(--err); }
+  .preview { position: relative; margin-top: 14px; aspect-ratio: 16 / 9; border-radius: 8px; overflow: hidden;
+          border: 1px solid var(--line);
+          background: repeating-conic-gradient(#3a3d45 0 25%, #2a2c33 0 50%) 0 0 / 20px 20px; }
+  .preview canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; }
+  .preview .empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--dim); font-size: 13px; text-align: center; padding: 12px; }
+  .hint { font-size: 12px; color: var(--dim); margin-top: 6px; }
+  .colorrow[hidden], .sliders[hidden], .preview .empty[hidden] { display: none; }
+  footer { position: fixed; left: 0; right: 0; bottom: 0; background: rgba(22, 24, 29, 0.95); border-top: 1px solid var(--line); }
+  footer div { max-width: 1100px; margin: 0 auto; padding: 12px 16px; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+  button { padding: 9px 20px; border: 0; border-radius: 6px; background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+  button.secondary { background: #343842; font-weight: 400; padding: 7px 12px; }
+  #msg { color: var(--dim); }
+  #msg.ok { color: var(--ok); } #msg.err { color: var(--err); }
+  details { color: var(--dim); font-size: 13px; margin: 0 0 20px; max-width: 760px; }
+  summary { cursor: pointer; color: var(--text); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Cam-Overlay: eigene Videos</h1>
+  <p class="lead">Für jedes Theme kannst du statt des eingebauten Effekts ein eigenes Video (MP4 oder WebM) abspielen lassen.
+    Pfad leer lassen = eingebauter Effekt. Nach dem Speichern übernimmt das Overlay in OBS die Änderung innerhalb von 2 Sekunden.</p>
+  <details>
+    <summary>Wie wird ein MP4 durchsichtig?</summary>
+    <p>MP4 kann selbst keine Transparenz speichern. Das Overlay rechnet sie deshalb aus jedem Bild heraus:</p>
+    <ul>
+      <li><b>Schwarz ausblenden</b>: für Effekt-Clips auf schwarzem Hintergrund (Feuer, Partikel, Lichtblitze). Dunkle Stellen werden durchsichtig, helle bleiben.</li>
+      <li><b>Farbe ausblenden</b>: für Greenscreen-Videos. Am besten in die Vorschau auf den grünen Hintergrund klicken, dann wird genau diese Farbe übernommen.</li>
+      <li><b>Keine</b>: Video bleibt, wie es ist. Sinnvoll für WebM-Videos mit echtem Alphakanal (VP9), die schon durchsichtig sind.</li>
+    </ul>
+    <p>Pfad kopieren unter Windows: Datei mit Umschalt + Rechtsklick → „Als Pfad kopieren“. Die Anführungszeichen darfst du mit einfügen.</p>
+  </details>
+  <div class="grid" id="themes"></div>
+</main>
+<footer><div>
+  <button id="save">Speichern</button>
+  <span id="msg"></span>
+</div></footer>
+
+<script>
+const THEMES = [
+  ['portal', 'Nether-Portal', 'Solange du im Portal stehst.'],
+  ['underwater', 'Unterwasser', 'Solange dein Kopf unter Wasser ist.'],
+  ['freeze', 'Frieren', 'Im Pulverschnee. Wie im Spiel: wird stärker, je mehr du frierst.'],
+  ['cherry', 'Kirschblüten', 'Im Kirschblütenhain-Biom.'],
+];
+// Startwerte für die Regler, je nach Art der Transparenz
+const DEFAULTS = { black: { tolerance: 0.05, softness: 0.30 }, color: { tolerance: 0.25, softness: 0.15 }, none: {} };
+
+const ui = {};
+const msg = document.getElementById('msg');
+function say(text, cls) { msg.textContent = text; msg.className = cls || ''; }
+
+function build() {
+  const root = document.getElementById('themes');
+  for (const [k, name, when] of THEMES) {
+    const card = document.createElement('section');
+    card.className = 'card';
+    card.innerHTML = `
+      <h2></h2><div class="when"></div>
+      <label>Videodatei (vollständiger Pfad)</label>
+      <div class="row"><input type="text" data-f="path" placeholder="C:\\Videos\\${k}.mp4" spellcheck="false">
+        <button type="button" class="secondary fixed" data-f="clear">Leeren</button></div>
+      <div class="status"></div>
+      <label>Transparenz</label>
+      <select data-f="key">
+        <option value="black">Schwarz ausblenden (Effekte auf schwarzem Hintergrund)</option>
+        <option value="color">Farbe ausblenden (Greenscreen)</option>
+        <option value="none">Keine (WebM mit Alphakanal)</option>
+      </select>
+      <div class="colorrow"><label>Farbe, die durchsichtig wird</label>
+        <div class="row"><input type="color" data-f="color" class="fixed"><span class="hint">oder in die Vorschau klicken</span></div></div>
+      <div class="sliders">
+        <label>Toleranz <span class="val" data-v="tolerance"></span></label>
+        <input type="range" min="0" max="100" data-f="tolerance">
+        <label>Weiche Kante <span class="val" data-v="softness"></span></label>
+        <input type="range" min="0" max="100" data-f="softness">
+      </div>
+      <label>Deckkraft <span class="val" data-v="opacity"></span></label>
+      <input type="range" min="0" max="100" data-f="opacity">
+      <div class="preview"><canvas></canvas><div class="empty">Kein Video eingestellt</div></div>`;
+    card.querySelector('h2').textContent = name;
+    card.querySelector('.when').textContent = when;
+    const f = (n) => card.querySelector(`[data-f="${n}"]`);
+    const u = ui[k] = {
+      path: f('path'), clear: f('clear'), key: f('key'), color: f('color'),
+      tolerance: f('tolerance'), softness: f('softness'), opacity: f('opacity'),
+      status: card.querySelector('.status'), colorRow: card.querySelector('.colorrow'), sliders: card.querySelector('.sliders'),
+      canvas: card.querySelector('canvas'), empty: card.querySelector('.empty'), video: null, rev: null,
+    };
+    u.ctx = u.canvas.getContext('2d');
+    for (const n of ['tolerance', 'softness', 'opacity', 'color', 'path']) u[n].addEventListener('input', () => { refresh(k); dirty(); });
+    u.key.addEventListener('change', () => {
+      const d = DEFAULTS[u.key.value];
+      for (const n in d) u[n].value = Math.round(d[n] * 100);
+      refresh(k); dirty();
+    });
+    u.clear.addEventListener('click', () => { u.path.value = ''; dirty(); });
+    u.canvas.addEventListener('click', (e) => pickColor(k, e));
+    root.appendChild(card);
+  }
+}
+
+function dirty() { say('Ungespeicherte Änderungen', ''); }
+
+// Anzeige (Zahlen neben den Reglern, Farbwahl nur bei Greenscreen) an die Eingaben anpassen
+function refresh(k) {
+  const u = ui[k];
+  u.colorRow.hidden = u.key.value !== 'color';
+  u.sliders.hidden = u.key.value === 'none';
+  for (const n of ['tolerance', 'softness', 'opacity']) u[n].parentNode.querySelector(`[data-v="${n}"]`).textContent = u[n].value + ' %';
+}
+
+function settings(k) {
+  const u = ui[k];
+  return { path: u.path.value, key: u.key.value, color: u.color.value,
+           tolerance: u.tolerance.value / 100, softness: u.softness.value / 100, opacity: u.opacity.value / 100 };
+}
+
+function fill(themes, errors) {
+  for (const [k] of THEMES) {
+    const u = ui[k], t = themes[k];
+    if (!errors || !Object.keys(errors).length) {   // bei Fehlern nichts überschreiben, was du eingegeben hast
+      u.path.value = t.path; u.key.value = t.key; u.color.value = t.color;
+      u.tolerance.value = Math.round(t.tolerance * 100); u.softness.value = Math.round(t.softness * 100);
+      u.opacity.value = Math.round(t.opacity * 100);
+    }
+    const err = errors && errors[k];
+    u.status.className = 'status ' + (err ? 'err' : t.status === 'ok' ? 'ok' : t.status === 'off' ? '' : 'err');
+    u.status.textContent = err ? err : t.status === 'ok' ? 'Video aktiv' : t.status === 'off' ? 'Eingebauter Effekt' : t.status;
+    setVideo(k, t.status === 'ok' ? t.rev : null);
+    refresh(k);
+  }
+}
+
+function setVideo(k, rev) {
+  const u = ui[k];
+  if (rev === u.rev) return;
+  u.rev = rev;
+  if (u.video) { u.video.pause(); u.video.removeAttribute('src'); u.video.load(); u.video = null; }
+  u.empty.hidden = !!rev;
+  u.ctx.clearRect(0, 0, u.canvas.width, u.canvas.height);
+  if (!rev) return;
+  const v = document.createElement('video');
+  v.muted = true; v.loop = true; v.playsInline = true; v.autoplay = true;
+  v.onerror = () => { u.status.className = 'status err'; u.status.textContent = 'Video lässt sich nicht abspielen (Format/Codec? H.264 oder VP9 verwenden)'; };
+  v.src = '/video/' + k + '?v=' + encodeURIComponent(rev);
+  v.play().catch(() => {});
+  u.video = v;
+}
+
+// Klick in die Vorschau: Farbe an dieser Stelle des Originalvideos als Greenscreen-Farbe übernehmen
+const picker = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+function pickColor(k, e) {
+  const u = ui[k], v = u.video;
+  if (!v || !v.videoWidth) return;
+  const r = u.canvas.getBoundingClientRect();
+  const fx = (e.clientX - r.left) / r.width, fy = (e.clientY - r.top) / r.height;
+  const ratio = (v.videoWidth / v.videoHeight) / (r.width / r.height);    // gleicher Ausschnitt wie "cover"
+  const [cx, cy, cw, ch] = ratio > 1 ? [(1 - 1 / ratio) / 2, 0, 1 / ratio, 1] : [0, (1 - ratio) / 2, 1, ratio];
+  const x = Math.floor((cx + fx * cw) * v.videoWidth), y = Math.floor((cy + fy * ch) * v.videoHeight);
+  picker.canvas.width = 5; picker.canvas.height = 5;
+  picker.drawImage(v, x - 2, y - 2, 5, 5, 0, 0, 5, 5);                  // 5 x 5 Pixel mitteln gegen Rauschen
+  const d = picker.getImageData(0, 0, 5, 5).data;
+  const avg = [0, 1, 2].map(c => { let s = 0; for (let i = c; i < d.length; i += 4) s += d[i]; return Math.round(s / 25); });
+  u.color.value = '#' + avg.map(c => c.toString(16).padStart(2, '0')).join('');
+  if (u.key.value !== 'color') {
+    u.key.value = 'color';
+    const dft = DEFAULTS.color;
+    for (const n in dft) u[n].value = Math.round(dft[n] * 100);
+  }
+  refresh(k); dirty();
+}
+
+async function load() {
+  try {
+    const res = await fetch('/config', { cache: 'no-store' });
+    fill((await res.json()).themes);
+  } catch (e) {
+    say('Keine Verbindung zum Mod. Läuft Minecraft?', 'err');
+  }
+}
+
+document.getElementById('save').addEventListener('click', async () => {
+  const themes = {};
+  for (const [k] of THEMES) themes[k] = settings(k);
+  say('Speichere …', '');
+  try {
+    const res = await fetch('/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ themes }) });
+    if (res.status === 403) { say('Abgelehnt: bitte die Seite über http://127.0.0.1:…/ öffnen.', 'err'); return; }
+    const j = await res.json();
+    fill(j.themes, j.errors);
+    if (j.ok) say('Gespeichert. Das Overlay übernimmt es in 2 Sekunden.', 'ok');
+    else say(j.errors[''] || 'Nicht gespeichert: bitte die rot markierten Felder prüfen.', 'err');
+  } catch (e) {
+    say('Speichern fehlgeschlagen. Läuft Minecraft noch?', 'err');
+  }
+});
+
+// Vorschau: Video mit den aktuellen (auch noch nicht gespeicherten) Reglerwerten über einem Schachbrett
+function loop() {
+  for (const [k] of THEMES) {
+    const u = ui[k], v = u.video;
+    if (!v || v.readyState < 2 || !v.videoWidth) continue;
+    const w = u.canvas.clientWidth, h = u.canvas.clientHeight;
+    if (!w || !h) continue;
+    if (u.canvas.width !== w || u.canvas.height !== h) { u.canvas.width = w; u.canvas.height = h; }
+    try {
+      const s = settings(k);
+      const img = keyVideo(v, s, w, h);
+      u.ctx.clearRect(0, 0, w, h);
+      u.ctx.globalAlpha = s.opacity;
+      u.ctx.drawImage(img, 0, 0, w, h);
+      u.ctx.globalAlpha = 1;
+    } catch (e) { /* Bild auslassen */ }
+  }
+  requestAnimationFrame(loop);
+}
+
+// ---- Keyer: macht im Video Schwarz oder eine Farbe (Greenscreen) durchsichtig ----
+// MP4 hat keinen Alphakanal, deshalb wird die Transparenz hier pro Bild ausgerechnet (per WebGL auf der
+// Grafikkarte, ohne WebGL auf der CPU in kleinerer Auflösung). WebM mit Alphakanal bleibt durchsichtig.
+// Gleicher Code in cam-themes.html und in der Einstellungsseite des Mods (settings.html).
+function createKeyer() {
+  const MODES = { none: 0, black: 1, color: 2 };
+  const canvas = document.createElement('canvas');
+  // Bildausschnitt wie "cover": Video füllt die Fläche, überstehende Ränder werden abgeschnitten
+  const cover = (vw, vh, w, h) => {
+    const r = (vw / vh) / (w / h);
+    return r > 1 ? [(1 - 1 / r) / 2, 0, 1 / r, 1] : [0, (1 - r) / 2, 1, r];
+  };
+  const rgb = (hex) => { const k = parseInt(hex.slice(1), 16) || 0; return [(k >> 16 & 255) / 255, (k >> 8 & 255) / 255, (k & 255) / 255]; };
+  const chroma = (r, g, b) => [-0.169 * r - 0.331 * g + 0.5 * b, 0.5 * r - 0.419 * g - 0.081 * b];
+
+  const gl = canvas.getContext('webgl', { premultipliedAlpha: true, preserveDrawingBuffer: true });
+  if (gl) {
+    const shader = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); return s; };
+    const prog = gl.createProgram();
+    gl.attachShader(prog, shader(gl.VERTEX_SHADER,
+      'attribute vec2 p; varying vec2 uv; void main() { uv = vec2(p.x, -p.y) * 0.5 + 0.5; gl_Position = vec4(p, 0.0, 1.0); }'));
+    gl.attachShader(prog, shader(gl.FRAGMENT_SHADER, `
+      precision mediump float;
+      uniform sampler2D tex;
+      uniform vec4 crop;
+      uniform int mode;
+      uniform vec3 key;
+      uniform float tol, soft;
+      varying vec2 uv;
+      vec2 chroma(vec3 c) { return vec2(-0.169 * c.r - 0.331 * c.g + 0.5 * c.b, 0.5 * c.r - 0.419 * c.g - 0.081 * c.b); }
+      void main() {
+        vec4 c = texture2D(tex, crop.xy + uv * crop.zw);
+        float a = 1.0;
+        if (mode == 1) a = clamp((max(c.r, max(c.g, c.b)) - tol) / max(soft, 0.001), 0.0, 1.0);
+        if (mode == 2) {
+          a = clamp((distance(chroma(c.rgb), chroma(key)) / 0.6 - tol) / max(soft, 0.001), 0.0, 1.0);
+          c.rgb = mix(vec3(dot(c.rgb, vec3(0.299, 0.587, 0.114))), c.rgb, a); // Farbsaum an den Kanten entfernen
+        }
+        a *= c.a;
+        gl_FragColor = vec4(c.rgb * a, a);
+      }`));
+    gl.linkProgram(prog);
+    if (gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+      gl.useProgram(prog);
+      gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+      const p = gl.getAttribLocation(prog, 'p');
+      gl.enableVertexAttribArray(p);
+      gl.vertexAttribPointer(p, 2, gl.FLOAT, false, 0, 0);
+      gl.bindTexture(gl.TEXTURE_2D, gl.createTexture());
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      const u = {};
+      for (const n of ['crop', 'mode', 'key', 'tol', 'soft']) u[n] = gl.getUniformLocation(prog, n);
+      return (video, s, w, h) => {
+        if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+        gl.viewport(0, 0, w, h);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
+        gl.uniform4fv(u.crop, cover(video.videoWidth, video.videoHeight, w, h));
+        gl.uniform1i(u.mode, MODES[s.key] || 0);
+        gl.uniform3fv(u.key, rgb(s.color));
+        gl.uniform1f(u.tol, s.tolerance);
+        gl.uniform1f(u.soft, s.softness);
+        gl.clearColor(0, 0, 0, 0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        return canvas;
+      };
+    }
+  }
+
+  // Ohne WebGL: gleiche Rechnung auf der CPU, auf höchstens 480 Pixel Breite verkleinert
+  const g = canvas.getContext('2d', { willReadFrequently: true });
+  return (video, s, w, h) => {
+    const f = Math.min(1, 480 / w);
+    const cw = Math.max(1, Math.round(w * f)), ch = Math.max(1, Math.round(h * f));
+    if (canvas.width !== cw || canvas.height !== ch) { canvas.width = cw; canvas.height = ch; }
+    const vw = video.videoWidth, vh = video.videoHeight;
+    const [x, y, sw, sh] = cover(vw, vh, w, h);
+    g.clearRect(0, 0, cw, ch);
+    g.drawImage(video, x * vw, y * vh, sw * vw, sh * vh, 0, 0, cw, ch);
+    const mode = MODES[s.key] || 0;
+    if (mode === 0) return canvas;
+    const img = g.getImageData(0, 0, cw, ch), d = img.data;
+    const key = chroma(...rgb(s.color)), soft = Math.max(s.softness, 0.001);
+    for (let i = 0; i < d.length; i += 4) {
+      const r = d[i] / 255, gr = d[i + 1] / 255, b = d[i + 2] / 255;
+      let a;
+      if (mode === 1) {
+        a = (Math.max(r, gr, b) - s.tolerance) / soft;
+      } else {
+        const [u, v] = chroma(r, gr, b);
+        a = (Math.hypot(u - key[0], v - key[1]) / 0.6 - s.tolerance) / soft;
+        a = Math.max(0, Math.min(1, a));
+        const l = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];   // Farbsaum entfernen
+        d[i] = l + (d[i] - l) * a; d[i + 1] = l + (d[i + 1] - l) * a; d[i + 2] = l + (d[i + 2] - l) * a;
+      }
+      d[i + 3] *= Math.max(0, Math.min(1, a));
+    }
+    g.putImageData(img, 0, 0);
+    return canvas;
+  };
+}
+
+const keyVideo = createKeyer();
+build();
+load();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

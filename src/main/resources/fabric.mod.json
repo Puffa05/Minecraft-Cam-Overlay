@@ -3,7 +3,7 @@
 	"id": "damagealert",
 	"version": "${version}",
 	"name": "Damage Alert",
-	"description": "Stellt den Minecraft-Spielzustand lokal unter http://127.0.0.1:7475/state bereit, fuer ein OBS-Kamera-Overlay. Nur lesend.",
+	"description": "Stellt den Minecraft-Spielzustand lokal unter http://127.0.0.1:7475/state bereit, fuer ein OBS-Kamera-Overlay, mit Einstellungsseite fuer eigene Theme-Videos unter http://127.0.0.1:7475/. Liest das Spiel nur.",
 	"authors": ["Puffa05"],
 	"license": "MIT",
 	"environment": "client",

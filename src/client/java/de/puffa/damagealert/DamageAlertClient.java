@@ -51,6 +51,11 @@ public class DamageAlertClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         int port = loadPort();
+        try {
+            VideoConfig.load(FabricLoader.getInstance().getConfigDir().resolve("damagealert.properties"));
+        } catch (RuntimeException e) {
+            LOGGER.warn("Video-Einstellungen konnten nicht geladen werden", e); // Overlay nutzt dann die eingebauten Themes
+        }
         StateServer.start(port, () -> stateJson);
         ClientLifecycleEvents.CLIENT_STOPPING.register(client -> StateServer.stop());
 
