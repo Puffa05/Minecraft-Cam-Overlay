@@ -1,8 +1,8 @@
 # Minecraft-Cam-Overlay
 
 Wenn in Minecraft etwas passiert (Schaden, Portal, Unterwasser, Frieren, Kirschblüten-Biom, Blitze),
-verändert sich deine Webcam im Stream passend: z. B. ein kurzer roter Rahmen bei Schaden oder
-Fische über der Cam unter Wasser.
+verändert sich deine Webcam im Stream passend: z. B. wirst du bei Schaden kurz rot wie ein
+getroffener Minecraft-Spieler und dunkelrote Schadens-Herzen fliegen hoch, unter Wasser schwimmen Fische über die Cam.
 
 ```
 Minecraft-Mod  ->  lokaler HTTP-Server  ->  OBS-Browser-Quelle (cam-themes.html)
@@ -47,7 +47,51 @@ Im Ordner [`download/`](download/) liegt immer der aktuelle Stand
 ### 3. Prüfen
 - Läuft Minecraft mit dem Mod, zeigt http://127.0.0.1:7475/state im Browser den aktuellen Zustand.
 - Overlay ohne Minecraft ansehen: im Browser `cam-themes.html?demo` öffnen (wechselt alle 6 s das Theme)
-  oder gezielt `?theme=portal`, `?theme=underwater`, `?theme=freeze`, `?theme=cherry`, `?theme=lightning`.
+  oder gezielt `?theme=portal`, `?theme=underwater`, `?theme=freeze`, `?theme=cherry`, `?theme=lightning`,
+  `?theme=damage` (Treffer alle 2 s).
+
+### Schaden
+Bei jedem HP-Verlust:
+- **Du wirst 0,5 s rot**, nur du, nicht der Hintergrund. Genau so färbt Minecraft getroffene Spieler
+  und Mobs (10 Ticks). Dafür ist eine einmalige Einrichtung in OBS nötig, siehe
+  [Rot bei Schaden](#rot-bei-schaden-nur-du-nicht-der-hintergrund). Ohne sie gibt es den Rest trotzdem.
+- **Dunkelrote Schadens-Herzen** (die Original-Partikel aus dem Spiel) fliegen links und rechts neben
+  dir hoch, mehr bei mehr Schaden (bis `HIT_PARTICLES`).
+- Ein kurzer **roter Rahmen** (`HIT_ALPHA`, `0` = aus).
+
+### Rot bei Schaden (nur du, nicht der Hintergrund)
+Das Overlay sieht dein Kamerabild nicht, es liegt nur darüber. Deshalb übernimmt OBS das Ausschneiden:
+Eine zweite, ausgeschnittene Kopie von dir liegt deckungsgleich über deiner Cam. Bei einem Treffer
+schaltet das Overlay daran über obs-websocket einen Rot-Filter kurz ein. Ist er aus, sieht die Kopie
+genauso aus wie du, man bemerkt sie also nicht. Eine Kamera-Berechtigung braucht das Overlay dafür nicht.
+
+Voraussetzungen: **OBS 28 oder neuer** und eine Personenerkennung als Filter:
+- das kostenlose Plugin **Background Removal** (obs-backgroundremoval, im OBS-Forum unter
+  „Plugins“), läuft auf jeder Grafikkarte, kostet aber etwas CPU, oder
+- mit NVIDIA-RTX-Karte den Filter **NVIDIA Background Removal**, falls er bei dir in der Filterliste steht.
+
+Einrichten (einmalig):
+1. **Neue Szene `Cam-Rot`** anlegen. Darin: Quelle hinzufügen → *Vorhandene hinzufügen* → deine
+   Kamera. Rechtsklick auf die Kamera → *Transformieren* → *An Bildschirm anpassen* (Strg+F).
+2. In der Szenenliste Rechtsklick auf `Cam-Rot` → **Filter**, dann zwei Effektfilter in dieser Reihenfolge:
+   1. **Background Removal** (bzw. NVIDIA Background Removal): macht den Hintergrund durchsichtig.
+   2. **Farbkorrektur**, Name genau **`Schaden-Rot`**: *Farbe multiplizieren* `#FFB3B3`,
+      *Farbe hinzufügen* `#4D0000` (das ergibt ca. 30 % Rot, wie im Spiel). Danach am Augen-Symbol
+      ausschalten (das Overlay macht das beim Verbinden aber auch selbst).
+3. In deiner **normalen Szene**: Quelle hinzufügen → *Szene* → `Cam-Rot`. Sie gehört **über** die
+   Kamera und **unter** das Browser-Overlay. Dann bei der Kamera Rechtsklick → *Transformieren* →
+   *Transformation kopieren*, bei `Cam-Rot` → *Transformation einfügen*. Hast du die Kamera zugeschnitten
+   oder ist sie nicht 16:9, musst du `Cam-Rot` von Hand genau darüberlegen.
+4. **Werkzeuge → WebSocket-Server-Einstellungen**: *WebSocket-Server aktivieren* anhaken,
+   *Verbindungsinformationen anzeigen* → Passwort kopieren und oben in `cam-themes.html` bei
+   `OBS_PASSWORD` eintragen. Port und Namen stehen dort ebenfalls (`OBS_WS_URL`, `OBS_SOURCE`, `OBS_FILTER`).
+   Achtung: Mit dem Passwort kann man OBS fernsteuern. Gib die Datei mit eingetragenem Passwort
+   also nicht weiter.
+5. Browser-Quelle in OBS neu laden (Eigenschaften → *Cache der aktuellen Seite aktualisieren*).
+
+Testen: Während OBS läuft, `cam-themes.html?theme=damage` im normalen Browser öffnen. Du solltest
+in OBS alle 2 s kurz rot werden. Wenn nicht: In der Browser-Konsole (F12) steht, ob das Passwort
+falsch ist oder Quelle bzw. Filter anders heißen.
 
 ### Blitze
 Bei jedem echten Blitz im Spiel zuckt am Rand der Cam ein Minecraft-Blitz herab und das Bild hellt
@@ -60,7 +104,7 @@ Stärke und Reichweite stellst du oben in `cam-themes.html` mit `LIGHTNING_ALPHA
 `GET http://127.0.0.1:7475/state`, z. B.:
 ```json
 {"inWorld":true,"inPortal":false,"underwater":true,"inLava":false,"onFire":false,
- "freeze":0.000,"health":16.0,"maxHealth":20.0,"hits":3,
+ "freeze":0.000,"health":16.0,"maxHealth":20.0,"hits":3,"damageTotal":12.0,
  "biome":"minecraft:cherry_grove","dimension":"minecraft:overworld","y":64.0,
  "raining":false,"thundering":false,"lightning":2,"lightningDist":38.5}
 ```
@@ -74,6 +118,7 @@ Stärke und Reichweite stellst du oben in `cam-themes.html` mit `LIGHTNING_ALPHA
 | `freeze` | Gefrier-Fortschritt 0 bis 1 (wie das Frost-Overlay im Spiel) |
 | `health` / `maxHealth` | Lebenspunkte (20 = 10 Herzen) |
 | `hits` | Trefferzähler, steigt bei jedem HP-Verlust. 40 Ticks Ruhe nach Join, Respawn und Dimensionswechsel. |
+| `damageTotal` | Summe aller verlorenen HP (steigt nur). Das Overlay berechnet daraus, wie stark ein Treffer war. |
 | `biome` | Biom-ID an der Spielerposition |
 | `dimension` | `minecraft:overworld`, `minecraft:the_nether`, `minecraft:the_end` |
 | `y` | Höhe |
@@ -84,7 +129,7 @@ Stärke und Reichweite stellst du oben in `cam-themes.html` mit `LIGHTNING_ALPHA
 ### Original-Texturen
 Alle Themes benutzen die Grafiken aus deinem Minecraft: die animierte Portal-Textur, Wasser,
 Blasen, Kabeljau, Lachs, Tropenfisch und Kugelfisch, den Pulverschnee-Frostrand mit Schneeflocken
-und die Kirschblätter-Partikel. Der Mod liefert sie unter
+die Kirschblätter-Partikel und die Schadens-Herzen. Der Mod liefert sie unter
 `http://127.0.0.1:7475/texture/<name>.png` (nur diese feste Liste, auch aus deinem Ressourcenpaket).
 Im Repo liegen keine Mojang-Dateien. Läuft Minecraft nicht (z. B. beim Testen mit `?demo`), nimmt
 das Overlay selbst gezeichnete Pixel-Ersatzgrafiken.

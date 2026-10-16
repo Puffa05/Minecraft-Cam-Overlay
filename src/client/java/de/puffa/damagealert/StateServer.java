@@ -40,6 +40,7 @@ public final class StateServer {
         m.put("tropical_fish", Identifier.ofVanilla("textures/item/tropical_fish.png"));
         m.put("pufferfish", Identifier.ofVanilla("textures/item/pufferfish.png"));
         m.put("powder_snow_outline", Identifier.ofVanilla("textures/misc/powder_snow_outline.png"));
+        m.put("damage", Identifier.ofVanilla("textures/particle/damage.png")); // Schadens-Herz-Partikel
         for (int i = 0; i < 12; i++) { // Kirschblueten-Partikel
             m.put("cherry_" + i, Identifier.ofVanilla("textures/particle/cherry_" + i + ".png"));
         }

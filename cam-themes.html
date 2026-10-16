@@ -23,13 +23,21 @@ const PORTAL_MAX = 1.0;      // 1.0 = so stark wie im Spiel; kleiner = Cam bleib
 const TEXTURE_URL = STATE_URL.replace(/\/state$/, '/texture/');
 const HIT_MS    = 450;   // Dauer des roten Aufleuchtens bei Schaden
 const HIT_ALPHA = 0.7;   // Stärke des roten Rahmens
+const HIT_PARTICLES = 12; // höchstens so viele Schadens-Herzen pro Treffer (0 = aus); 2 HP Schaden = 2 Herzen
+// Dich selbst rot färben (wie getroffene Mobs in Minecraft): Das Overlay schaltet dafür per
+// obs-websocket einen Filter in OBS kurz an. Einrichtung siehe README, Abschnitt "Rot bei Schaden".
+const OBS_WS_URL   = 'ws://127.0.0.1:4455'; // OBS: Werkzeuge -> WebSocket-Server-Einstellungen
+const OBS_PASSWORD = '';                    // Passwort von dort (leer, wenn Authentifizierung aus)
+const OBS_SOURCE   = 'Cam-Rot';             // Quelle mit dem Ausschnitt von dir
+const OBS_FILTER   = 'Schaden-Rot';         // Farbkorrektur-Filter, der dich rot färbt
+const PERSON_RED_MS = 500;                  // so lange bist du rot (im Spiel: 10 Ticks = 0,5 s)
 const LIGHTNING_ALPHA = 0.28;     // Stärke des Aufhellens bei einem Blitz (0 = aus)
 const LIGHTNING_FAR = 160;        // ab dieser Entfernung (Blöcke) ist der Blitz nur noch schwach
 // Wie lange ein Zustand stabil sein muss, bevor er zählt (gegen Flackern)
 const DEBOUNCE_MS = { inPortal: 100, underwater: 250, cherry: 1000 };
 // Testen ohne Minecraft (an die Datei-URL anhängen):
-//   ?demo   ?theme=portal   ?theme=underwater   ?theme=freeze   ?theme=cherry   ?theme=lightning
-//   Im Demo-Modus gibt es alle 2 Sekunden einen Test-Treffer.
+//   ?demo   ?theme=portal   ?theme=underwater   ?theme=freeze   ?theme=cherry   ?theme=lightning   ?theme=damage
+//   Im Demo-Modus (und bei ?theme=damage) gibt es alle 2 Sekunden einen Test-Treffer unterschiedlicher Stärke.
 // =========================================================
 
 const params = new URLSearchParams(location.search);
@@ -62,8 +70,11 @@ async function poll() {
 const testTheme = params.get('theme');
 const demo = params.has('demo');
 function testState(ms) {
+  const hits = demo || testTheme === 'damage' ? Math.floor(ms / 2000) : 0;
+  let damageTotal = 0;
+  for (let k = 1; k <= hits; k++) damageTotal += 1 + (k * 5) % 8; // Treffer von 1 bis 8 HP
   const s = { inWorld: true, inPortal: false, underwater: false, inLava: false,
-              freeze: 0, biome: 'minecraft:plains', hits: demo ? Math.floor(ms / 2000) : 0,
+              freeze: 0, biome: 'minecraft:plains', hits, damageTotal,
               lightning: 0, lightningDist: 20 };
   let theme = testTheme, phase = 0;
   if (demo) {
@@ -551,35 +562,146 @@ function drawLightning(now) {
   }
 }
 
-// ---------------- Schaden: kurzer roter Rahmen ----------------
-let lastHits = null;
+// ---------------- Schaden (wie in Minecraft) ----------------
+// Getroffene Spieler und Mobs färbt Minecraft kurz rot ein, beim Zuschlagen fliegen dunkelrote
+// Schadens-Herzen (Partikel "damage_indicator") nach oben. Hier: Du wirst über OBS kurz rot gefärbt
+// (nur du, nicht der Hintergrund, siehe unten), dazu ein roter Rahmen und die Original-Herzen.
+// Wie viele Herzen, hängt vom Schaden ab.
+loadTexture('damage', () => pixelCanvas(8, 8, g => {   // Ersatz: dunkelrotes Pixel-Herz
+  const rows = [' ## ## ', '#######', '#######', ' ##### ', '  ###  ', '   #   '];
+  rows.forEach((row, y) => [...row].forEach((ch, x) => {
+    if (ch !== '#') return;
+    g.fillStyle = y === 1 && (x === 1 || x === 2) ? '#c0281e' : '#7a0a0a';
+    g.fillRect(x, y + 1, 1, 1);
+  }));
+}));
+let lastHits = null, lastDamageTotal = null, lastHealthSeen = null;
 let hitAt = -Infinity;
+const hearts = [];
 function checkHits(s, now) {
   if (!s || typeof s.hits !== 'number') return;
-  if (lastHits !== null && s.hits > lastHits) hitAt = now;
-  lastHits = s.hits; // sinkt der Zähler (Mod neu gestartet), einfach übernehmen
-}
-function drawHit(now) {
-  const p = (now - hitAt) / HIT_MS;
-  if (p < 0 || p > 1) return;
-  const f = (p < 0.15 ? p / 0.15 : 1 - (p - 0.15) / 0.85) * HIT_ALPHA;
-  ctx.globalCompositeOperation = 'source-over';
-  const glow = 24;
-  const edges = [
-    [0, 0, 0, glow, 0, 0, W, glow], [0, H, 0, H - glow, 0, H - glow, W, glow],
-    [0, 0, glow, 0, 0, 0, glow, H], [W, 0, W - glow, 0, W - glow, 0, glow, H]
-  ];
-  for (const [x1, y1, x2, y2, rx, ry, rw, rh] of edges) {
-    const g = ctx.createLinearGradient(x1, y1, x2, y2);
-    g.addColorStop(0, `rgba(255, 0, 0, ${0.5 * f})`);
-    g.addColorStop(1, 'rgba(255, 0, 0, 0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(rx, ry, rw, rh);
+  if (lastHits !== null && s.hits > lastHits) {
+    // Schaden seit der letzten Abfrage; ältere Mod-Versionen liefern kein damageTotal -> HP-Differenz
+    let dmg = 4;
+    if (typeof s.damageTotal === 'number' && lastDamageTotal !== null && s.damageTotal > lastDamageTotal) {
+      dmg = s.damageTotal - lastDamageTotal;
+    } else if (typeof s.health === 'number' && lastHealthSeen !== null && s.health < lastHealthSeen) {
+      dmg = lastHealthSeen - s.health;
+    }
+    onHit(now, dmg);
   }
-  ctx.strokeStyle = `rgba(255, 30, 30, ${f})`;
-  ctx.lineWidth = 4;
-  ctx.strokeRect(2, 2, W - 4, H - 4);
+  // sinken die Zähler (Mod neu gestartet), einfach übernehmen
+  lastHits = s.hits;
+  lastDamageTotal = typeof s.damageTotal === 'number' ? s.damageTotal : null;
+  lastHealthSeen = typeof s.health === 'number' ? s.health : null;
 }
+function onHit(now, dmg) {
+  hitAt = now;
+  obsPersonRed();
+  // Im Spiel: halb so viele Herzen wie Schaden. Hier etwas mehr (mindestens 2), damit man sie auf der Cam sieht.
+  const n = Math.min(HIT_PARTICLES, Math.max(2, Math.round(dmg)));
+  for (let i = 0; i < n; i++) {
+    // Starten links und rechts neben dir (nicht übers Gesicht), fliegen schnell nach oben, werden
+    // gebremst und sinken leicht ab (wie im Spiel: Schub nach oben, Luftwiderstand 0.7 pro Tick)
+    const left = Math.random() < 0.5;
+    hearts.push({
+      x: left ? rnd(0.12, 0.35) : rnd(0.65, 0.88), y: rnd(0.62, 0.9),
+      vx: rnd(-0.4, 0.4), vy: -rnd(1.8, 2.8),
+      born: now, life: rnd(800, 1100), shade: rnd(0.75, 1)
+    });
+  }
+}
+function drawHit(now, dt) {
+  // 1. kurzer roter Rahmen
+  const p = (now - hitAt) / HIT_MS;
+  if (p >= 0 && p <= 1) {
+    const f = (p < 0.15 ? p / 0.15 : 1 - (p - 0.15) / 0.85) * HIT_ALPHA;
+    ctx.globalCompositeOperation = 'source-over';
+    const glow = 24;
+    const edges = [
+      [0, 0, 0, glow, 0, 0, W, glow], [0, H, 0, H - glow, 0, H - glow, W, glow],
+      [0, 0, glow, 0, 0, 0, glow, H], [W, 0, W - glow, 0, W - glow, 0, glow, H]
+    ];
+    for (const [x1, y1, x2, y2, rx, ry, rw, rh] of edges) {
+      const g = ctx.createLinearGradient(x1, y1, x2, y2);
+      g.addColorStop(0, `rgba(255, 0, 0, ${0.5 * f})`);
+      g.addColorStop(1, 'rgba(255, 0, 0, 0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(rx, ry, rw, rh);
+    }
+    ctx.strokeStyle = `rgba(255, 30, 30, ${f})`;
+    ctx.lineWidth = 4;
+    ctx.strokeRect(2, 2, W - 4, H - 4);
+  }
+  // 2. Schadens-Herzen
+  if (!hearts.length) return;
+  ctx.imageSmoothingEnabled = false;
+  const img = tex.damage;
+  const P = px();
+  const drag = Math.pow(0.7, dt * 20);   // Luftwiderstand wie im Spiel (pro Tick * 0.7)
+  for (let i = hearts.length - 1; i >= 0; i--) {
+    const h = hearts[i];
+    const age = now - h.born;
+    if (age > h.life) { hearts.splice(i, 1); continue; }
+    h.vx *= drag; h.vy *= drag;
+    h.vy += 0.25 * dt;                   // leichte Schwerkraft
+    h.x += h.vx * dt; h.y += h.vy * dt;
+    const grow = Math.min(1, age / 80);  // poppt kurz auf, wie im Spiel
+    const size = img.width * P * 1.5 * grow;
+    ctx.globalAlpha = Math.min(1, (h.life - age) / 150) * STRENGTH; // am Ende kurz ausblenden
+    ctx.filter = `brightness(${h.shade})`; // im Spiel sind die Herzen unterschiedlich hell
+    ctx.drawImage(img, snap(h.x * W) - size / 2, snap(h.y * H) - size / 2, size, size);
+  }
+  ctx.filter = 'none';
+  ctx.globalAlpha = 1;
+}
+
+// ---------------- OBS: dich selbst rot färben ----------------
+// Verbindung zu obs-websocket (Protokoll v5, in OBS ab Version 28 eingebaut). Bei einem Treffer
+// wird der Filter OBS_FILTER an der Quelle OBS_SOURCE eingeschaltet und nach PERSON_RED_MS wieder aus.
+// Läuft OBS nicht oder ist nichts eingerichtet, passiert einfach nichts (alle 5 s neuer Versuch).
+let obs = null, obsReady = false, obsReqId = 0, obsOffTimer = null, obsErrorLogged = false;
+async function sha256b64(text) {
+  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return btoa(String.fromCharCode(...new Uint8Array(hash)));
+}
+function obsRequest(requestType, requestData) {
+  if (!obsReady) return;
+  obs.send(JSON.stringify({ op: 6, d: { requestType, requestId: String(++obsReqId), requestData } }));
+}
+function obsSetRed(on) {
+  obsRequest('SetSourceFilterEnabled', { sourceName: OBS_SOURCE, filterName: OBS_FILTER, filterEnabled: on });
+}
+function obsPersonRed() {
+  if (!obsReady) return;
+  obsSetRed(true);
+  clearTimeout(obsOffTimer);              // neuer Treffer verlängert das Rot
+  obsOffTimer = setTimeout(() => obsSetRed(false), PERSON_RED_MS);
+}
+function obsConnect() {
+  try { obs = new WebSocket(OBS_WS_URL); } catch (e) { setTimeout(obsConnect, 5000); return; }
+  obs.onmessage = async (ev) => {
+    const msg = JSON.parse(ev.data);
+    if (msg.op === 0) {                   // Hello -> Identify (mit Passwort, falls verlangt)
+      const d = { rpcVersion: 1, eventSubscriptions: 0 };
+      const a = msg.d.authentication;
+      if (a) d.authentication = await sha256b64(await sha256b64(OBS_PASSWORD + a.salt) + a.challenge);
+      obs.send(JSON.stringify({ op: 1, d }));
+    } else if (msg.op === 2) {            // Identified
+      obsReady = true;
+      obsSetRed(false);                   // falls der Filter noch an war
+    } else if (msg.op === 7 && !msg.d.requestStatus.result && !obsErrorLogged) {
+      obsErrorLogged = true;              // z. B. Quelle oder Filter falsch benannt
+      console.warn('OBS:', msg.d.requestStatus.comment);
+    }
+  };
+  obs.onclose = (ev) => {
+    obsReady = false;
+    if (ev.code === 4009) console.warn('OBS: falsches Passwort (OBS_PASSWORD)');
+    setTimeout(obsConnect, 5000);
+  };
+}
+obsConnect();
 
 // ---------------- Hauptschleife ----------------
 function resize() {
@@ -619,7 +741,7 @@ function frame(now) {
   if (alpha.freeze > 0)     drawFreeze(alpha.freeze * STRENGTH, freezeLevel, t, dt);
   if (alpha.portal > 0)     drawPortal(alpha.portal * STRENGTH, t);
   drawLightning(now); // Blitze unabhängig vom Theme
-  drawHit(now); // Schaden immer obendrauf, unabhängig vom Theme
+  drawHit(now, dt); // Schaden immer obendrauf, unabhängig vom Theme
 
   requestAnimationFrame(frame);
 }
