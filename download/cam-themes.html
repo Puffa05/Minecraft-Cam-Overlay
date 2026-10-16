@@ -23,10 +23,12 @@ const PORTAL_MAX = 1.0;      // 1.0 = so stark wie im Spiel; kleiner = Cam bleib
 const TEXTURE_URL = STATE_URL.replace(/\/state$/, '/texture/');
 const HIT_MS    = 450;   // Dauer des roten Aufleuchtens bei Schaden
 const HIT_ALPHA = 0.7;   // Stärke des roten Rahmens
+const LIGHTNING_ALPHA = 0.28;     // Stärke des Aufhellens bei einem Blitz (0 = aus)
+const LIGHTNING_FAR = 160;        // ab dieser Entfernung (Blöcke) ist der Blitz nur noch schwach
 // Wie lange ein Zustand stabil sein muss, bevor er zählt (gegen Flackern)
 const DEBOUNCE_MS = { inPortal: 100, underwater: 250, cherry: 1000 };
 // Testen ohne Minecraft (an die Datei-URL anhängen):
-//   ?demo   ?theme=portal   ?theme=underwater   ?theme=freeze   ?theme=cherry
+//   ?demo   ?theme=portal   ?theme=underwater   ?theme=freeze   ?theme=cherry   ?theme=lightning
 //   Im Demo-Modus gibt es alle 2 Sekunden einen Test-Treffer.
 // =========================================================
 
@@ -61,10 +63,11 @@ const testTheme = params.get('theme');
 const demo = params.has('demo');
 function testState(ms) {
   const s = { inWorld: true, inPortal: false, underwater: false, inLava: false,
-              freeze: 0, biome: 'minecraft:plains', hits: demo ? Math.floor(ms / 2000) : 0 };
+              freeze: 0, biome: 'minecraft:plains', hits: demo ? Math.floor(ms / 2000) : 0,
+              lightning: 0, lightningDist: 20 };
   let theme = testTheme, phase = 0;
   if (demo) {
-    const list = ['portal', 'underwater', 'freeze', 'cherry', 'none'];
+    const list = ['portal', 'underwater', 'freeze', 'cherry', 'lightning', 'none'];
     theme = list[Math.floor(ms / 6000) % list.length];
     phase = (ms % 6000) / 6000;
   }
@@ -72,6 +75,7 @@ function testState(ms) {
   if (theme === 'underwater') s.underwater = true;
   if (theme === 'freeze') s.freeze = demo ? Math.min(phase * 1.6, 1) : 1;
   if (theme === 'cherry') s.biome = 'minecraft:cherry_grove';
+  if (theme === 'lightning') s.lightning = Math.floor(ms / 3000);
   return s;
 }
 
@@ -475,6 +479,78 @@ function drawCherry(a, t, dt) {
   }
 }
 
+// ---------------- Blitz (wie in Minecraft) ----------------
+// Bei jedem echten Blitz im Spiel ("lightning" steigt) zuckt am Rand der Cam ein Minecraft-Blitz herab:
+// kantiger Zickzack in mehreren bläulich-weißen Schichten. Wie im Spiel flackert er 2-4 Mal kurz auf
+// (je ca. 3 Ticks, dazwischen zufällige Pausen) und hellt dabei das Bild auf. Nahe Blitze sind stärker.
+let lastLightning = null;
+const bolts = [];
+function checkLightning(s, now) {
+  if (!s || typeof s.lightning !== 'number') return;
+  if (lastLightning !== null && s.lightning > lastLightning) spawnBolt(now, s.lightningDist);
+  lastLightning = s.lightning; // sinkt der Zähler (Mod neu gestartet), einfach übernehmen
+}
+function spawnBolt(now, dist) {
+  const near = typeof dist === 'number' && dist >= 0 ? Math.max(0.35, 1 - dist / LIGHTNING_FAR) : 0.7;
+  const flashes = [];
+  let t = 0;
+  const n = 2 + Math.floor(Math.random() * 3);
+  for (let i = 0; i < n; i++) { flashes.push([t, t + 150]); t += 150 + Math.random() * 500; }
+  // Blitz-Form: von oben nach unten in 8 Abschnitten, seitlich versetzt; nur am Rand, nicht übers Gesicht
+  const left = Math.random() < 0.5;
+  const pts = [];
+  let x = left ? rnd(0.06, 0.2) : rnd(0.8, 0.94);
+  for (let i = 0; i <= 8; i++) {
+    pts.push([x, -0.05 + i * 1.1 / 8]);
+    x = Math.max(left ? 0.01 : 0.74, Math.min(left ? 0.26 : 0.99, x + rnd(-0.05, 0.05)));
+  }
+  const branches = [];
+  for (let b = 0; b < 1 + Math.floor(Math.random() * 2); b++) {
+    const from = 2 + Math.floor(Math.random() * 4);
+    const dir = (left ? 1 : -1) * (Math.random() < 0.7 ? 1 : -1);
+    const br = [pts[from]];
+    let [bx, by] = pts[from];
+    for (let i = 0; i < 3; i++) { bx += dir * rnd(0.02, 0.05); by += 1.1 / 8; br.push([bx, by]); }
+    branches.push(br);
+  }
+  bolts.push({ start: now, flashes, end: now + t, pts, branches, near });
+}
+function drawBoltLine(pts, width, alpha) {
+  const P = px();
+  ctx.strokeStyle = `rgba(115, 115, 128, ${alpha})`;   // Farbe des Blitzes im Spiel (0.45, 0.45, 0.5)
+  ctx.lineWidth = width;
+  ctx.lineJoin = 'miter';
+  ctx.lineCap = 'square';
+  ctx.beginPath();
+  pts.forEach(([x, y], i) => {
+    const sx = snap(x * W), sy = snap(y * H);
+    if (i === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
+  });
+  ctx.stroke();
+}
+function drawLightning(now) {
+  for (let i = bolts.length - 1; i >= 0; i--) {
+    const b = bolts[i];
+    const e = now - b.start;
+    if (now > b.end) { bolts.splice(i, 1); continue; }
+    if (!b.flashes.some(([s0, s1]) => e >= s0 && e < s1)) continue; // zwischen zwei Aufflackern: dunkel
+    // 1. Bild kurz aufhellen (im Spiel leuchtet der Himmel auf)
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = `rgba(220, 230, 255, ${LIGHTNING_ALPHA * b.near * STRENGTH})`;
+    ctx.fillRect(0, 0, W, H);
+    // 2. Der Blitz selbst: 4 Schichten addiert, innen am hellsten (wie das Spiel ihn zeichnet)
+    ctx.globalCompositeOperation = 'lighter';
+    const P = px();
+    for (let layer = 4; layer >= 1; layer--) {
+      const w = P * layer * 1.5;
+      const al = 0.3 * b.near * STRENGTH;
+      drawBoltLine(b.pts, w, al);
+      for (const br of b.branches) drawBoltLine(br, w * 0.6, al);
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  }
+}
+
 // ---------------- Schaden: kurzer roter Rahmen ----------------
 let lastHits = null;
 let hitAt = -Infinity;
@@ -534,6 +610,7 @@ function frame(now) {
   if (active === 'portal') alpha.portal = 1; // Portal blendet wie im Spiel selbst ein (updatePortal)
 
   checkHits(s, now);
+  checkLightning(s, now);
   updatePortal(active === 'portal', dt);
 
   ctx.clearRect(0, 0, W, H);
@@ -541,6 +618,7 @@ function frame(now) {
   if (alpha.underwater > 0) drawUnderwater(alpha.underwater * STRENGTH, t, dt);
   if (alpha.freeze > 0)     drawFreeze(alpha.freeze * STRENGTH, freezeLevel, t, dt);
   if (alpha.portal > 0)     drawPortal(alpha.portal * STRENGTH, t);
+  drawLightning(now); // Blitze unabhängig vom Theme
   drawHit(now); // Schaden immer obendrauf, unabhängig vom Theme
 
   requestAnimationFrame(frame);

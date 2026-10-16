@@ -1,6 +1,7 @@
 package de.puffa.damagealert;
 
 import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientEntityEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.loader.api.FabricLoader;
@@ -8,6 +9,7 @@ import net.minecraft.block.Blocks;   // Yarn-Mappings
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.world.ClientWorld;
+import net.minecraft.entity.LightningEntity;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
 import org.slf4j.Logger;
@@ -43,12 +45,27 @@ public class DamageAlertClient implements ClientModInitializer {
     private long hits = 0;              // Trefferzähler, steigt nur
     private boolean portalArmed = false; // verhindert Portal-Effekt direkt nach der Ankunft
     private boolean tickErrorLogged = false;
+    private long lightning = 0;          // Blitz-Zaehler, steigt bei jedem Blitz, den das Spiel anzeigt
+    private float lightningDist = -1;    // Entfernung des letzten Blitzes in Bloecken
 
     @Override
     public void onInitializeClient() {
         int port = loadPort();
         StateServer.start(port, () -> stateJson);
         ClientLifecycleEvents.CLIENT_STOPPING.register(client -> StateServer.stop());
+
+        // Blitze: Das Spiel legt fuer jeden sichtbaren Blitz ein Blitz-Objekt in der Welt an.
+        ClientEntityEvents.ENTITY_LOAD.register((entity, world) -> {
+            try {
+                if (entity instanceof LightningEntity) {
+                    lightning++;
+                    var player = MinecraftClient.getInstance().player;
+                    lightningDist = player != null ? entity.distanceTo(player) : -1;
+                }
+            } catch (RuntimeException | LinkageError e) {
+                LOGGER.warn("Blitz konnte nicht ausgewertet werden", e);
+            }
+        });
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             // Absturzschutz: Ein Fehler im Mod darf nie das Spiel beenden.
@@ -61,8 +78,8 @@ public class DamageAlertClient implements ClientModInitializer {
                 }
                 // Overlay sicher auf "aus" stellen, statt einen veralteten Zustand stehen zu lassen
                 stateJson = String.format(Locale.ROOT,
-                        "{\"inWorld\":false,\"inPortal\":false,\"underwater\":false,\"freeze\":0,\"biome\":null,\"hits\":%d}",
-                        hits);
+                        "{\"inWorld\":false,\"inPortal\":false,\"underwater\":false,\"freeze\":0,\"biome\":null,\"hits\":%d,\"lightning\":%d}",
+                        hits, lightning);
             }
         });
     }
@@ -76,8 +93,8 @@ public class DamageAlertClient implements ClientModInitializer {
             lastPlayer = null;
             lastHealth = -1;
             stateJson = String.format(Locale.ROOT,
-                    "{\"inWorld\":false,\"inPortal\":false,\"underwater\":false,\"freeze\":0,\"biome\":null,\"hits\":%d}",
-                    hits);
+                    "{\"inWorld\":false,\"inPortal\":false,\"underwater\":false,\"freeze\":0,\"biome\":null,\"hits\":%d,\"lightning\":%d}",
+                    hits, lightning);
             return;
         }
 
@@ -120,7 +137,7 @@ public class DamageAlertClient implements ClientModInitializer {
                 "{\"inWorld\":true,\"inPortal\":%b,\"underwater\":%b,\"inLava\":%b,\"onFire\":%b,"
                         + "\"freeze\":%.3f,\"health\":%.1f,\"maxHealth\":%.1f,\"hits\":%d,"
                         + "\"biome\":\"%s\",\"dimension\":\"%s\",\"y\":%.1f,"
-                        + "\"raining\":%b,\"thundering\":%b}",
+                        + "\"raining\":%b,\"thundering\":%b,\"lightning\":%d,\"lightningDist\":%.1f}",
                 inPortal,
                 player.isSubmergedInWater(),
                 player.isInLava(),
@@ -133,7 +150,9 @@ public class DamageAlertClient implements ClientModInitializer {
                 dimension,
                 player.getY(),
                 world.isRaining(),
-                world.isThundering());
+                world.isThundering(),
+                lightning,
+                lightningDist);
     }
 
     /**

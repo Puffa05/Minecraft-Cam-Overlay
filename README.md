@@ -1,6 +1,6 @@
 # Minecraft-Cam-Overlay
 
-Wenn in Minecraft etwas passiert (Schaden, Portal, Unterwasser, Frieren, Kirschblüten-Biom),
+Wenn in Minecraft etwas passiert (Schaden, Portal, Unterwasser, Frieren, Kirschblüten-Biom, Blitze),
 verändert sich deine Webcam im Stream passend: z. B. ein kurzer roter Rahmen bei Schaden oder
 Fische über der Cam unter Wasser.
 
@@ -47,7 +47,13 @@ Im Ordner [`download/`](download/) liegt immer der aktuelle Stand
 ### 3. Prüfen
 - Läuft Minecraft mit dem Mod, zeigt http://127.0.0.1:7475/state im Browser den aktuellen Zustand.
 - Overlay ohne Minecraft ansehen: im Browser `cam-themes.html?demo` öffnen (wechselt alle 6 s das Theme)
-  oder gezielt `?theme=portal`, `?theme=underwater`, `?theme=freeze`, `?theme=cherry`.
+  oder gezielt `?theme=portal`, `?theme=underwater`, `?theme=freeze`, `?theme=cherry`, `?theme=lightning`.
+
+### Blitze
+Bei jedem echten Blitz im Spiel zuckt am Rand der Cam ein Minecraft-Blitz herab und das Bild hellt
+kurz auf, nahe Blitze stärker als ferne. Es kommen nur Blitze an, die dein Spiel auch anzeigt: Wie
+weit das reicht, bestimmt die Sichtweite des Servers (im Test: bis ca. 60–100 Blöcke).
+Stärke und Reichweite stellst du oben in `cam-themes.html` mit `LIGHTNING_ALPHA` und `LIGHTNING_FAR` ein.
 
 ## Was der Mod liefert
 
@@ -56,7 +62,7 @@ Im Ordner [`download/`](download/) liegt immer der aktuelle Stand
 {"inWorld":true,"inPortal":false,"underwater":true,"inLava":false,"onFire":false,
  "freeze":0.000,"health":16.0,"maxHealth":20.0,"hits":3,
  "biome":"minecraft:cherry_grove","dimension":"minecraft:overworld","y":64.0,
- "raining":false,"thundering":false}
+ "raining":false,"thundering":false,"lightning":2,"lightningDist":38.5}
 ```
 
 | Feld | Bedeutung |
@@ -72,6 +78,8 @@ Im Ordner [`download/`](download/) liegt immer der aktuelle Stand
 | `dimension` | `minecraft:overworld`, `minecraft:the_nether`, `minecraft:the_end` |
 | `y` | Höhe |
 | `raining` / `thundering` | Regen / Gewitter |
+| `lightning` | Blitz-Zähler, steigt bei jedem Blitz, den dein Spiel anzeigt |
+| `lightningDist` | Entfernung des letzten Blitzes in Blöcken (`-1` = noch keiner) |
 
 ### Original-Texturen
 Alle Themes benutzen die Grafiken aus deinem Minecraft: die animierte Portal-Textur, Wasser,
