@@ -43,6 +43,7 @@ public class DamageAlertClient implements ClientModInitializer {
     private float lastHealth = -1;
     private int graceTicks = 0;
     private long hits = 0;              // Trefferzähler, steigt nur
+    private float damageTotal = 0;      // Summe aller verlorenen HP, steigt nur (Overlay: Stärke des Treffers)
     private boolean portalArmed = false; // verhindert Portal-Effekt direkt nach der Ankunft
     private boolean tickErrorLogged = false;
     private long lightning = 0;          // Blitz-Zaehler, steigt bei jedem Blitz, den das Spiel anzeigt
@@ -124,6 +125,7 @@ public class DamageAlertClient implements ClientModInitializer {
             graceTicks--;
         } else if (lastHealth >= 0 && health < lastHealth) {
             hits++;
+            damageTotal += lastHealth - health;
         }
         lastHealth = health;
 
@@ -135,7 +137,7 @@ public class DamageAlertClient implements ClientModInitializer {
 
         stateJson = String.format(Locale.ROOT,
                 "{\"inWorld\":true,\"inPortal\":%b,\"underwater\":%b,\"inLava\":%b,\"onFire\":%b,"
-                        + "\"freeze\":%.3f,\"health\":%.1f,\"maxHealth\":%.1f,\"hits\":%d,"
+                        + "\"freeze\":%.3f,\"health\":%.1f,\"maxHealth\":%.1f,\"hits\":%d,\"damageTotal\":%.1f,"
                         + "\"biome\":\"%s\",\"dimension\":\"%s\",\"y\":%.1f,"
                         + "\"raining\":%b,\"thundering\":%b,\"lightning\":%d,\"lightningDist\":%.1f}",
                 inPortal,
@@ -146,6 +148,7 @@ public class DamageAlertClient implements ClientModInitializer {
                 health,
                 player.getMaxHealth(),
                 hits,
+                damageTotal,
                 biome,
                 dimension,
                 player.getY(),
