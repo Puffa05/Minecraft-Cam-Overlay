@@ -29,8 +29,8 @@ public final class StateServer {
             }));
             server.start();
             DamageAlertClient.LOGGER.info("Zustands-Server läuft auf http://127.0.0.1:{}/state", port);
-        } catch (IOException e) {
-            // Port belegt o. Ä.: Spiel läuft trotzdem normal weiter
+        } catch (IOException | RuntimeException e) {
+            // Port belegt, ungültiger Port (z. B. 99999) o. Ä.: Spiel läuft trotzdem normal weiter
             DamageAlertClient.LOGGER.warn("Zustands-Server konnte nicht starten (Port {} belegt?)", port, e);
             server = null;
         }

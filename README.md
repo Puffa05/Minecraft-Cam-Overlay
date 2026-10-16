@@ -15,6 +15,8 @@ Minecraft-Mod  ->  lokaler HTTP-Server  ->  OBS-Browser-Quelle (cam-themes.html)
 
 Kein Zwischenprogramm (kein Streamer.bot). Der Mod **liest nur**: Er schickt nichts an den
 Minecraft-Server, simuliert keine Eingaben, ändert nichts am Gameplay und nutzt keine Mixins.
+Fehler im Mod (auch ein ungültiger Port in der Config) werden abgefangen und nur geloggt,
+das Spiel läuft immer weiter.
 
 ---
 
@@ -60,7 +62,7 @@ Im Ordner [`download/`](download/) liegt immer der aktuelle Stand
 | Feld | Bedeutung |
 |---|---|
 | `inWorld` | in einer Welt (sonst Hauptmenü/Laden: nur wenige Felder, alles „aus“) |
-| `inPortal` | steht im Nether-Portal (erst nachdem man einmal außerhalb stand, damit der Effekt im Ziel-Portal nicht sofort neu startet) |
+| `inPortal` | die Hitbox berührt ein Nether-Portal (erst nachdem man einmal außerhalb stand, damit der Effekt im Ziel-Portal nicht sofort neu startet) |
 | `underwater` | Augen unter Wasser |
 | `inLava` / `onFire` | in Lava / brennt |
 | `freeze` | Gefrier-Fortschritt 0 bis 1 (wie das Frost-Overlay im Spiel) |

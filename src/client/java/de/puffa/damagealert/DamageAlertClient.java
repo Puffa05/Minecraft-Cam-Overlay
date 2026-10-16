@@ -5,7 +5,11 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.block.Blocks;   // Yarn-Mappings
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.network.ClientPlayerEntity;
+import net.minecraft.client.world.ClientWorld;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Box;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -38,6 +42,7 @@ public class DamageAlertClient implements ClientModInitializer {
     private int graceTicks = 0;
     private long hits = 0;              // Trefferzähler, steigt nur
     private boolean portalArmed = false; // verhindert Portal-Effekt direkt nach der Ankunft
+    private boolean tickErrorLogged = false;
 
     @Override
     public void onInitializeClient() {
@@ -46,69 +51,103 @@ public class DamageAlertClient implements ClientModInitializer {
         ClientLifecycleEvents.CLIENT_STOPPING.register(client -> StateServer.stop());
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
-            var player = client.player;
-            var world = client.world;
-
-            if (player == null || world == null) {
-                lastPlayer = null;
-                lastHealth = -1;
+            // Absturzschutz: Ein Fehler im Mod darf nie das Spiel beenden.
+            try {
+                onTick(client);
+            } catch (RuntimeException | LinkageError e) {
+                if (!tickErrorLogged) {
+                    tickErrorLogged = true; // nur einmal loggen, sonst 20x pro Sekunde
+                    LOGGER.error("Fehler beim Lesen des Spielzustands (weitere werden nicht geloggt)", e);
+                }
+                // Overlay sicher auf "aus" stellen, statt einen veralteten Zustand stehen zu lassen
                 stateJson = String.format(Locale.ROOT,
                         "{\"inWorld\":false,\"inPortal\":false,\"underwater\":false,\"freeze\":0,\"biome\":null,\"hits\":%d}",
                         hits);
-                return;
             }
-
-            // Neue Welt, Serverwechsel, Respawn oder Dimensionswechsel (neues Spieler-Objekt)
-            if (player != lastPlayer) {
-                lastPlayer = player;
-                lastHealth = -1;
-                graceTicks = GRACE_TICKS;
-                portalArmed = false;
-            }
-
-            BlockPos pos = player.getBlockPos();
-
-            // ---- Portal ----
-            // Erst "scharf", nachdem man einmal außerhalb eines Portals stand.
-            // So startet der Effekt nicht sofort wieder im Ziel-Portal.
-            boolean touchingPortal = world.getBlockState(pos).isOf(Blocks.NETHER_PORTAL);
-            if (!touchingPortal) portalArmed = true;
-            boolean inPortal = touchingPortal && portalArmed;
-
-            // ---- Schaden -> Trefferzähler ----
-            float health = player.getHealth();
-            if (graceTicks > 0) {
-                graceTicks--;
-            } else if (lastHealth >= 0 && health < lastHealth) {
-                hits++;
-            }
-            lastHealth = health;
-
-            // ---- Weitere Zustände ----
-            String biome = world.getBiome(pos).getKey()
-                    .map(key -> key.getValue().toString())
-                    .orElse("unknown");
-            String dimension = world.getRegistryKey().getValue().toString();
-
-            stateJson = String.format(Locale.ROOT,
-                    "{\"inWorld\":true,\"inPortal\":%b,\"underwater\":%b,\"inLava\":%b,\"onFire\":%b,"
-                            + "\"freeze\":%.3f,\"health\":%.1f,\"maxHealth\":%.1f,\"hits\":%d,"
-                            + "\"biome\":\"%s\",\"dimension\":\"%s\",\"y\":%.1f,"
-                            + "\"raining\":%b,\"thundering\":%b}",
-                    inPortal,
-                    player.isSubmergedInWater(),
-                    player.isInLava(),
-                    player.isOnFire(),
-                    player.getFreezingScale(),
-                    health,
-                    player.getMaxHealth(),
-                    hits,
-                    biome,
-                    dimension,
-                    player.getY(),
-                    world.isRaining(),
-                    world.isThundering());
         });
+    }
+
+    /** Liest den Spielzustand. Laeuft jeden Tick im Spiel-Thread. */
+    private void onTick(MinecraftClient client) {
+        var player = client.player;
+        var world = client.world;
+
+        if (player == null || world == null) {
+            lastPlayer = null;
+            lastHealth = -1;
+            stateJson = String.format(Locale.ROOT,
+                    "{\"inWorld\":false,\"inPortal\":false,\"underwater\":false,\"freeze\":0,\"biome\":null,\"hits\":%d}",
+                    hits);
+            return;
+        }
+
+        // Neue Welt, Serverwechsel, Respawn oder Dimensionswechsel (neues Spieler-Objekt)
+        if (player != lastPlayer) {
+            lastPlayer = player;
+            lastHealth = -1;
+            graceTicks = GRACE_TICKS;
+            portalArmed = false;
+        }
+
+        BlockPos pos = player.getBlockPos();
+
+        // ---- Portal ----
+        // Erst "scharf", nachdem man einmal außerhalb eines Portals stand.
+        // So startet der Effekt nicht sofort wieder im Ziel-Portal.
+        boolean touchingPortal = hitboxTouchesPortal(player, world);
+        // Erst entsperren, wenn die Welt fertig geladen ist: Waehrend des Ladens sind die
+        // Chunks noch leer, das Portal wuerde als Luft gelesen und die Sperre zu frueh aufgehoben.
+        boolean worldLoaded = client.getNetworkHandler() != null && client.getNetworkHandler().isLoaded();
+        if (!touchingPortal && worldLoaded) portalArmed = true;
+        boolean inPortal = touchingPortal && portalArmed;
+
+        // ---- Schaden -> Trefferzähler ----
+        float health = player.getHealth();
+        if (graceTicks > 0) {
+            graceTicks--;
+        } else if (lastHealth >= 0 && health < lastHealth) {
+            hits++;
+        }
+        lastHealth = health;
+
+        // ---- Weitere Zustände ----
+        String biome = world.getBiome(pos).getKey()
+                .map(key -> key.getValue().toString())
+                .orElse("unknown");
+        String dimension = world.getRegistryKey().getValue().toString();
+
+        stateJson = String.format(Locale.ROOT,
+                "{\"inWorld\":true,\"inPortal\":%b,\"underwater\":%b,\"inLava\":%b,\"onFire\":%b,"
+                        + "\"freeze\":%.3f,\"health\":%.1f,\"maxHealth\":%.1f,\"hits\":%d,"
+                        + "\"biome\":\"%s\",\"dimension\":\"%s\",\"y\":%.1f,"
+                        + "\"raining\":%b,\"thundering\":%b}",
+                inPortal,
+                player.isSubmergedInWater(),
+                player.isInLava(),
+                player.isOnFire(),
+                player.getFreezingScale(),
+                health,
+                player.getMaxHealth(),
+                hits,
+                biome,
+                dimension,
+                player.getY(),
+                world.isRaining(),
+                world.isThundering());
+    }
+
+    /**
+     * Berührt die Hitbox des Spielers irgendwo einen Portalblock? Prüft alle Blöcke, die die
+     * Hitbox schneidet (wie Minecraft selbst), nicht nur den Block unter den Füßen.
+     */
+    private static boolean hitboxTouchesPortal(ClientPlayerEntity player, ClientWorld world) {
+        Box box = player.getBoundingBox().contract(1.0E-5); // Kanten, die einen Block nur berühren, zählen nicht
+        BlockPos min = BlockPos.ofFloored(box.minX, box.minY, box.minZ);
+        BlockPos max = BlockPos.ofFloored(box.maxX, box.maxY, box.maxZ);
+        for (BlockPos p : BlockPos.iterate(min, max)) {
+            if (world.getBlockState(p).isOf(Blocks.NETHER_PORTAL)) return true;
+        }
+        return false;
     }
 
     /** Liest den Port aus config/damagealert.properties, legt die Datei bei Bedarf an. */
